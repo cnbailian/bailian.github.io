@@ -1,237 +1,113 @@
+<!DOCTYPE html>
 <html>
-<head>
-    <meta charset="utf-8" />
-<meta name="description" content="" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+  <head>
+    <meta charset="utf-8" >
 
 <title>Kubernetes 的 Dynamic Provisioning 实现 | 白联</title>
 
-<link rel="shortcut icon" href="https://cnbailian.github.io/favicon.ico?v=1612686156247">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 
-<link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css" rel="stylesheet">
+<link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.7.2/css/all.css" integrity="sha384-fnmOCqbTlWIlj8LyTjo7mOUStjsKC4pOpQbqyi7RrhN7udi9RwhKkMHpvLbHG9Sr" crossorigin="anonymous">
+<link rel="shortcut icon" href="https://cnbailian.github.io/favicon.ico?v=1612687627446">
 <link rel="stylesheet" href="https://cnbailian.github.io/styles/main.css">
-<!-- <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.0/dist/css/bootstrap.min.css"> -->
 
-<style>
-    hr {
-        margin-top: 1rem;
-        margin-bottom: 1rem;
-        border: 0;
-        border-top: 1px solid rgba(0, 0, 0, 0.1);
-    }
-</style>
 
-<script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets/highlight.min.js"></script>
-<script src="https://cdn.bootcss.com/highlight.js/9.15.10/languages/dockerfile.min.js"></script>
-<script src="https://cdn.bootcss.com/highlight.js/9.15.10/languages/dart.min.js"></script>
 
-<!-- <script src="https://cdn.jsdelivr.net/npm/moment@2.27.0/moment.min.js"></script> -->
-<!-- <script src="https://cdn.jsdelivr.net/npm/jquery@3.5.1/dist/jquery.slim.min.js"></script> -->
-<!-- <script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.0/dist/umd/popper.min.js"></script> -->
-<!-- <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.5.0/dist/js/bootstrap.min.js"></script> -->
-<!-- DEMO JS -->
-<!--<script src="media/scripts/index.js"></script>-->
+<link rel="stylesheet" href="https://unpkg.com/aos@next/dist/aos.css" />
+<script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>
 
 
 <script async src="https://www.googletagmanager.com/gtag/js?id=UA-189065612-1"></script>
 <script>
-    window.dataLayer = window.dataLayer || [];
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
 
-    function gtag() {
-        dataLayer.push(arguments);
-    }
-
-    gtag('js', new Date());
-    gtag('config', 'UA-189065612-1');
+  gtag('config', 'UA-189065612-1');
 </script>
 
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.12.0/dist/katex.css">
-</head>
-<body>
-<div class="main gt-bg-theme-color-first">
-    <style>
-    /* 导航栏样式 */
-    .navbar {
-        position: relative;
-        display: -ms-flexbox;
-        display: flex;
-        -ms-flex-wrap: wrap;
-        flex-wrap: wrap;
-        -ms-flex-align: center;
-        align-items: center;
-        -ms-flex-pack: justify;
-        justify-content: space-between;
-        padding: 0.5rem 1rem;
-    }
 
-    .navbar-brand {
-        display: inline-block;
-        padding-top: 0.3125rem;
-        padding-bottom: 0.3125rem;
-        margin-right: 1rem;
-        font-size: 1.25rem;
-        line-height: inherit;
-        white-space: nowrap;
-    }
+    <meta name="description" content="存储一直是容器运行的关键部分，Kubernetes 为此做了很多努力，从一开始的 Pod Volumes、PV(Persistent Volumes) 与 PVC(Persistent Volume Claim)，到 StorageClas..." />
+    <meta name="keywords" content="kubernetes,storage" />
+  </head>
+  <body>
+    <div id="app" class="main">
 
-    .navbar-brand:hover,
-    .navbar-brand:focus {
-        text-decoration: none;
-    }
-
-    .navbar-nav {
-        display: -ms-flexbox;
-        display: flex;
-        -ms-flex-direction: column;
-        flex-direction: column;
-        padding-left: 0;
-        margin-bottom: 0;
-        list-style: none;
-    }
-
-    .navbar-collapse {
-        -ms-flex-preferred-size: 100%;
-        flex-basis: 100%;
-        -ms-flex-positive: 1;
-        flex-grow: 1;
-        -ms-flex-align: center;
-        align-items: center;
-    }
-
-    .navbar-toggler {
-        padding: 0.25rem 0.75rem;
-        font-size: 1.25rem;
-        line-height: 1;
-        background-color: transparent;
-        border: 1px solid transparent;
-        border-radius: 0.25rem;
-    }
-
-    .navbar-toggler:hover,
-    .navbar-toggler:focus {
-        text-decoration: none;
-    }
-
-    @media (min-width: 992px) {
-        .navbar-expand-lg {
-            -ms-flex-flow: row nowrap;
-            flex-flow: row nowrap;
-            -ms-flex-pack: start;
-            justify-content: flex-start;
-        }
-
-        .navbar-expand-lg .navbar-nav {
-            -ms-flex-direction: row;
-            flex-direction: row;
-        }
-
-        .navbar-expand-lg .navbar-collapse {
-            display: -ms-flexbox !important;
-            display: flex !important;
-            -ms-flex-preferred-size: auto;
-            flex-basis: auto;
-        }
-
-        .navbar-expand-lg .navbar-toggler {
-            display: none;
-        }
-    }
-
-    @media (max-width: 991px) {
-        #navbarSupportedContent {
-            display: none;
-        }
-    }
-</style>
-<nav class="navbar navbar-expand-lg">
-    <div class="navbar-brand">
-        <img class="user-avatar" src="/images/avatar.png" alt="头像">
-        <div class="site-name gt-c-content-color-first">
-            白联
-        </div>
+      <div class="sidebar" :class="{ 'full-height': menuVisible }">
+  <div class="top-container" data-aos="fade-right">
+    <div class="top-header-container">
+      <a class="site-title-container" href="https://cnbailian.github.io">
+        <img src="https://cnbailian.github.io/images/avatar.png?v=1612687627446" class="site-logo">
+        <h1 class="site-title">白联</h1>
+      </a>
+      <div class="menu-btn" @click="menuVisible = !menuVisible">
+        <div class="line"></div>
+      </div>
     </div>
-    <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarSupportedContent"
-        aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
-        <i class="fas fa-bars gt-c-content-color-first" style="font-size: 18px"></i>
-    </button>
-    <div class="collapse navbar-collapse" id="navbarSupportedContent">
-        <div class="navbar-nav mr-auto" style="text-align: center">
-            
-            <div class="nav-item">
-                
-                <a href="/" class="menu gt-a-link">
-                    首页
-                </a>
-                
-            </div>
-            
-            <div class="nav-item">
-                
-                <a href="/archives" class="menu gt-a-link">
-                    归档
-                </a>
-                
-            </div>
-            
-            <div class="nav-item">
-                
-                <a href="/tags" class="menu gt-a-link">
-                    标签
-                </a>
-                
-            </div>
-            
-            <div class="nav-item">
-                
-                <a href="/post/about" class="menu gt-a-link">
-                    关于
-                </a>
-                
-            </div>
-            
-        </div>
-        <div style="text-align: center">
-            <form id="gridea-search-form" style="position: relative" data-update="1612686156247"
-                action="/search/index.html">
-                <input class="search-input" autocomplete="off" spellcheck="false" name="q" placeholder="搜索文章" />
-                <i class="fas fa-search gt-c-content-color-first" style="position: absolute; top: 9px; left: 10px;"></i>
-            </form>
-        </div>
+    <div>
+      
+        
+          <a href="/" class="site-nav">
+            首页
+          </a>
+        
+      
+        
+          <a href="/archives" class="site-nav">
+            归档
+          </a>
+        
+      
+        
+          <a href="/tags" class="site-nav">
+            标签
+          </a>
+        
+      
+        
+          <a href="/post/about" class="site-nav">
+            关于
+          </a>
+        
+      
     </div>
-</nav>
-<script>
-    /* 移动端导航栏展开/收起切换 */
-    document.getElementById('changeNavbar').onclick = function () {
-        var element = document.getElementById('navbarSupportedContent');
-        if (element.style.display === 'none' || element.style.display === '') {
-            element.style.display = 'block';
-        } else {
-            element.style.display = 'none';
-        }
-    }
-</script>
-    <div class="post-container">
-        <div class="post-detail gt-bg-theme-color-second">
-            <article class="gt-post-content">
-                <h2 class="post-title">
-                    Kubernetes 的 Dynamic Provisioning 实现
-                </h2>
-                <div class="post-info">
-                    <time class="post-time gt-c-content-color-first">
-                        · 2020-03-11 ·
-                    </time>
-                    
-                        <a href="https://cnbailian.github.io/tag/rKzMZCB0T/" class="post-tags">
-                            # kubernetes
-                        </a>
-                    
-                        <a href="https://cnbailian.github.io/tag/tZFxZTmHR1/" class="post-tags">
-                            # storage
-                        </a>
-                    
-                </div>
-                <div class="post-content">
-                    <p>存储一直是容器运行的关键部分，Kubernetes 为此做了很多努力，从一开始的 Pod Volumes、PV(Persistent Volumes) 与 PVC(Persistent Volume Claim)，到 StorageClass 与 Dynamic Provisioning，再到现在 “out-of-tree” 的 CSI(Container Storage Interface)，Kubernetes 社区一直在演进存储的实现。</p>
+  </div>
+  <div class="bottom-container" data-aos="flip-up" data-aos-offset="0">
+    <div class="social-container">
+      
+        
+          <a class="social-link" href="https://github.com/cnbailian" target="_blank">
+            <i class="fab fa-github"></i>
+          </a>
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    </div>
+    <div class="site-description">
+      努力前行
+    </div>
+    <div class="site-footer">
+      Powered by <a href="https://github.com/getgridea/gridea" target="_blank">Gridea</a> | <a class="rss" href="https://cnbailian.github.io/atom.xml" target="_blank">RSS</a>
+    </div>
+  </div>
+</div>
+
+
+      <div class="main-container">
+        <div class="content-container" data-aos="fade-up">
+          <div class="post-detail">
+            <h2 class="post-title">Kubernetes 的 Dynamic Provisioning 实现</h2>
+            <div class="post-date">2020-03-11</div>
+            
+            <div class="post-content" v-pre>
+              <p>存储一直是容器运行的关键部分，Kubernetes 为此做了很多努力，从一开始的 Pod Volumes、PV(Persistent Volumes) 与 PVC(Persistent Volume Claim)，到 StorageClass 与 Dynamic Provisioning，再到现在 “out-of-tree” 的 CSI(Container Storage Interface)，Kubernetes 社区一直在演进存储的实现。</p>
 <p>前面基础的就不讲了，我们从 StorageClass 与 Dynamic Provisioning 开始了解。</p>
 <!--more-->  
 <h2 id="关于-storageclass-与-dynamic-provisioning">关于 StorageClass 与 Dynamic Provisioning</h2>
@@ -266,7 +142,7 @@ spec:
 <h2 id="如何实现">如何实现</h2>
 <p>我们根据 external-storage 仓库中的项目，简单的分析一下如何自定义一个 Dynamic Provisioner。</p>
 <p>其实这个仓库中的项目都很简单，文件没有几个，代码也没有几行。这是因为它们都是基于官方社区的 <a href="https://github.com/kubernetes-sigs/sig-storage-lib-external-provisioner#sig-storage-lib-external-provisioner">library</a> 实现的，它实现了 <code>Provisioner Controller</code> 的整个流程，包括监听、创建 PV 资源等，我们只需要实现 <code>Provisioner</code> 接口的两个方法就可以：</p>
-<pre><code class="language-Go">// Provisioner is an interface that creates templates for PersistentVolumes
+<pre><code>// Provisioner is an interface that creates templates for PersistentVolumes
 // and can create the volume as a new resource in the infrastructure provider.
 // It can also remove the volume it created from the underlying storage
 // provider.
@@ -284,7 +160,7 @@ type Provisioner interface {
 </code></pre>
 <p><code>Provision</code> 方法需要根据给定的数据，分配存储，响应 PV 对象。<code>Delete</code> 方法需要在 PV 删除时，也删除对应存储中的数据。</p>
 <p>我们选择仓库中的 nfs 项目来进行详细的分析，它不同于其他 client 类项目，它还维护了一份 nfs server，使得它可以不基于其他外部存储服务。可以在 <code>main</code> 函数中看到，通过 <code>runServer flag</code> 判断是否需要启动服务，默认为 <code>true</code>：</p>
-<pre><code class="language-go">	if *runServer {
+<pre><code>	if *runServer {
 		......
 		go func() {
 			for {
@@ -303,7 +179,7 @@ type Provisioner interface {
 	}
 </code></pre>
 <p>随后通过 <code>Provisioner Controller</code> 的 <code>Run</code> 方法启动 Provisioner 服务：</p>
-<pre><code class="language-go">	// Create the provisioner: it implements the Provisioner interface expected by
+<pre><code>	// Create the provisioner: it implements the Provisioner interface expected by
 	// the controller
 	nfsProvisioner := vol.NewNFSProvisioner(exportDir, clientset, outOfCluster, *useGanesha, ganeshaConfig, *enableXfsQuota, *serverHostname, *maxExports, *exportSubnet)
 
@@ -318,14 +194,14 @@ type Provisioner interface {
 	pc.Run(wait.NeverStop)
 </code></pre>
 <p><code>NewNFSProvisioner</code> 返回的是实现了 <code>Provisioner</code> 接口的结构体：</p>
-<pre><code class="language-go">type nfsProvisioner struct {
+<pre><code>type nfsProvisioner struct {
   ......
 }
 
 var _ controller.Provisioner = &amp;nfsProvisioner{}
 </code></pre>
 <p>接下来就看下如何实现的 <code>Provision</code> 方法：</p>
-<pre><code class="language-go">// options 里包含创建 pv 的数据，pvName、pvc、sc、selectedNode 等
+<pre><code>// options 里包含创建 pv 的数据，pvName、pvc、sc、selectedNode 等
 func (p *nfsProvisioner) Provision(options controller.ProvisionOptions) (*v1.PersistentVolume, error) {
   // 在这里进行验证，创建目录等操作
 	volume, err := p.createVolume(options)
@@ -397,7 +273,7 @@ func (p *nfsProvisioner) validateOptions(options controller.ProvisionOptions) (s
 }
 </code></pre>
 <p>然后是 <code>Delete</code> 方法的实现：</p>
-<pre><code class="language-go">func (p *nfsProvisioner) Delete(volume *v1.PersistentVolume) error {
+<pre><code>func (p *nfsProvisioner) Delete(volume *v1.PersistentVolume) error {
   ......
   // pv 删除后，删除对应的目录
 	err = p.deleteDirectory(volume)
@@ -412,56 +288,62 @@ func (p *nfsProvisioner) validateOptions(options controller.ProvisionOptions) (s
 <h2 id="后记">后记</h2>
 <p>碰巧在项目中接触到了 nfs 这个 Provisioner，并且经过测试及源码分析验证了这个项目不可用。经过查阅学习之后写下了这篇文章，算是为以后学习 CSI 作准备吧。</p>
 
-                </div>
-            </article>
-        </div>
-
-        
-            <div class="next-post">
-                <div class="next gt-c-content-color-first">下一篇</div>
-                <a href="https://cnbailian.github.io/post/vue-learning-route/" class="post-title gt-a-link">
-                    Vue 学习路线
-                </a>
             </div>
-        
+            
+              <div class="tag-container">
+                
+                  <a href="https://cnbailian.github.io/tag/rKzMZCB0T/" class="tag">
+                    kubernetes
+                  </a>
+                
+                  <a href="https://cnbailian.github.io/tag/tZFxZTmHR1/" class="tag">
+                    storage
+                  </a>
+                
+              </div>
+            
+            
+              <div class="next-post">
+                <div class="next">下一篇</div>
+                <a href="https://cnbailian.github.io/post/vue-learning-route/">
+                  <h3 class="post-title">
+                    Vue 学习路线
+                  </h3>
+                </a>
+              </div>
+            
 
-        
+            
 
-        
+          </div>
 
-        
-
-        <div class="site-footer gt-c-content-color-first">
-    <div class="slogan gt-c-content-color-first">努力前行</div>
-    <div class="social-container">
-        
-            
-        
-            
-        
-            
-        
-            
-        
-            
-        
-            
-        
+        </div>
+      </div>
     </div>
-    <div class="footer-info">
-        Powered by <a href="https://github.com/getgridea/gridea" target="_blank">Gridea</a>
-    </div>
-    <div>
-        Theme by <a href="https://imhanjie.com/" target="_blank">imhanjie</a>, Powered by <a
-                href="https://github.com/getgridea/gridea" target="_blank">Gridea | <a href="https://cnbailian.github.io/atom.xml" target="_blank">RSS</a></a>
-    </div>
-</div>
 
-<script>
-  hljs.initHighlightingOnLoad()
+    <script src="https://unpkg.com/aos@next/dist/aos.js"></script>
+<script type="application/javascript">
+
+AOS.init();
+
+var app = new Vue({
+  el: '#app',
+  data: {
+    menuVisible: false,
+  },
+})
+
 </script>
 
-    </div>
-</div>
-</body>
+
+  <script src="https://cdn.bootcss.com/highlight.js/9.12.0/highlight.min.js"></script>
+  <script>
+    hljs.initHighlightingOnLoad()
+  </script>
+
+
+
+
+
+  </body>
 </html>

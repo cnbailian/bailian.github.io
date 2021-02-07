@@ -1,237 +1,113 @@
+<!DOCTYPE html>
 <html>
-<head>
-    <meta charset="utf-8" />
-<meta name="description" content="" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+  <head>
+    <meta charset="utf-8" >
 
 <title>Kubernetes Cluster Autoscaler | 白联</title>
 
-<link rel="shortcut icon" href="https://cnbailian.github.io/favicon.ico?v=1612686156247">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 
-<link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css" rel="stylesheet">
+<link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.7.2/css/all.css" integrity="sha384-fnmOCqbTlWIlj8LyTjo7mOUStjsKC4pOpQbqyi7RrhN7udi9RwhKkMHpvLbHG9Sr" crossorigin="anonymous">
+<link rel="shortcut icon" href="https://cnbailian.github.io/favicon.ico?v=1612687627446">
 <link rel="stylesheet" href="https://cnbailian.github.io/styles/main.css">
-<!-- <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.0/dist/css/bootstrap.min.css"> -->
 
-<style>
-    hr {
-        margin-top: 1rem;
-        margin-bottom: 1rem;
-        border: 0;
-        border-top: 1px solid rgba(0, 0, 0, 0.1);
-    }
-</style>
 
-<script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets/highlight.min.js"></script>
-<script src="https://cdn.bootcss.com/highlight.js/9.15.10/languages/dockerfile.min.js"></script>
-<script src="https://cdn.bootcss.com/highlight.js/9.15.10/languages/dart.min.js"></script>
 
-<!-- <script src="https://cdn.jsdelivr.net/npm/moment@2.27.0/moment.min.js"></script> -->
-<!-- <script src="https://cdn.jsdelivr.net/npm/jquery@3.5.1/dist/jquery.slim.min.js"></script> -->
-<!-- <script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.0/dist/umd/popper.min.js"></script> -->
-<!-- <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.5.0/dist/js/bootstrap.min.js"></script> -->
-<!-- DEMO JS -->
-<!--<script src="media/scripts/index.js"></script>-->
+<link rel="stylesheet" href="https://unpkg.com/aos@next/dist/aos.css" />
+<script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>
 
 
 <script async src="https://www.googletagmanager.com/gtag/js?id=UA-189065612-1"></script>
 <script>
-    window.dataLayer = window.dataLayer || [];
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
 
-    function gtag() {
-        dataLayer.push(arguments);
-    }
-
-    gtag('js', new Date());
-    gtag('config', 'UA-189065612-1');
+  gtag('config', 'UA-189065612-1');
 </script>
 
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.12.0/dist/katex.css">
-</head>
-<body>
-<div class="main gt-bg-theme-color-first">
-    <style>
-    /* 导航栏样式 */
-    .navbar {
-        position: relative;
-        display: -ms-flexbox;
-        display: flex;
-        -ms-flex-wrap: wrap;
-        flex-wrap: wrap;
-        -ms-flex-align: center;
-        align-items: center;
-        -ms-flex-pack: justify;
-        justify-content: space-between;
-        padding: 0.5rem 1rem;
-    }
 
-    .navbar-brand {
-        display: inline-block;
-        padding-top: 0.3125rem;
-        padding-bottom: 0.3125rem;
-        margin-right: 1rem;
-        font-size: 1.25rem;
-        line-height: inherit;
-        white-space: nowrap;
-    }
+    <meta name="description" content="当我们使用 Kubernetes 部署应用后，会发现如果用户增长速度超过预期，以至于计算资源不够时，你会怎么做呢？Kubernetes 给出的解决方案就是：自动伸缩（auto-scaling），通过自动伸缩组件之间的配合，可以 7*24 小..." />
+    <meta name="keywords" content="autoscaler,kubernetes" />
+  </head>
+  <body>
+    <div id="app" class="main">
 
-    .navbar-brand:hover,
-    .navbar-brand:focus {
-        text-decoration: none;
-    }
-
-    .navbar-nav {
-        display: -ms-flexbox;
-        display: flex;
-        -ms-flex-direction: column;
-        flex-direction: column;
-        padding-left: 0;
-        margin-bottom: 0;
-        list-style: none;
-    }
-
-    .navbar-collapse {
-        -ms-flex-preferred-size: 100%;
-        flex-basis: 100%;
-        -ms-flex-positive: 1;
-        flex-grow: 1;
-        -ms-flex-align: center;
-        align-items: center;
-    }
-
-    .navbar-toggler {
-        padding: 0.25rem 0.75rem;
-        font-size: 1.25rem;
-        line-height: 1;
-        background-color: transparent;
-        border: 1px solid transparent;
-        border-radius: 0.25rem;
-    }
-
-    .navbar-toggler:hover,
-    .navbar-toggler:focus {
-        text-decoration: none;
-    }
-
-    @media (min-width: 992px) {
-        .navbar-expand-lg {
-            -ms-flex-flow: row nowrap;
-            flex-flow: row nowrap;
-            -ms-flex-pack: start;
-            justify-content: flex-start;
-        }
-
-        .navbar-expand-lg .navbar-nav {
-            -ms-flex-direction: row;
-            flex-direction: row;
-        }
-
-        .navbar-expand-lg .navbar-collapse {
-            display: -ms-flexbox !important;
-            display: flex !important;
-            -ms-flex-preferred-size: auto;
-            flex-basis: auto;
-        }
-
-        .navbar-expand-lg .navbar-toggler {
-            display: none;
-        }
-    }
-
-    @media (max-width: 991px) {
-        #navbarSupportedContent {
-            display: none;
-        }
-    }
-</style>
-<nav class="navbar navbar-expand-lg">
-    <div class="navbar-brand">
-        <img class="user-avatar" src="/images/avatar.png" alt="头像">
-        <div class="site-name gt-c-content-color-first">
-            白联
-        </div>
+      <div class="sidebar" :class="{ 'full-height': menuVisible }">
+  <div class="top-container" data-aos="fade-right">
+    <div class="top-header-container">
+      <a class="site-title-container" href="https://cnbailian.github.io">
+        <img src="https://cnbailian.github.io/images/avatar.png?v=1612687627446" class="site-logo">
+        <h1 class="site-title">白联</h1>
+      </a>
+      <div class="menu-btn" @click="menuVisible = !menuVisible">
+        <div class="line"></div>
+      </div>
     </div>
-    <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarSupportedContent"
-        aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
-        <i class="fas fa-bars gt-c-content-color-first" style="font-size: 18px"></i>
-    </button>
-    <div class="collapse navbar-collapse" id="navbarSupportedContent">
-        <div class="navbar-nav mr-auto" style="text-align: center">
-            
-            <div class="nav-item">
-                
-                <a href="/" class="menu gt-a-link">
-                    首页
-                </a>
-                
-            </div>
-            
-            <div class="nav-item">
-                
-                <a href="/archives" class="menu gt-a-link">
-                    归档
-                </a>
-                
-            </div>
-            
-            <div class="nav-item">
-                
-                <a href="/tags" class="menu gt-a-link">
-                    标签
-                </a>
-                
-            </div>
-            
-            <div class="nav-item">
-                
-                <a href="/post/about" class="menu gt-a-link">
-                    关于
-                </a>
-                
-            </div>
-            
-        </div>
-        <div style="text-align: center">
-            <form id="gridea-search-form" style="position: relative" data-update="1612686156247"
-                action="/search/index.html">
-                <input class="search-input" autocomplete="off" spellcheck="false" name="q" placeholder="搜索文章" />
-                <i class="fas fa-search gt-c-content-color-first" style="position: absolute; top: 9px; left: 10px;"></i>
-            </form>
-        </div>
+    <div>
+      
+        
+          <a href="/" class="site-nav">
+            首页
+          </a>
+        
+      
+        
+          <a href="/archives" class="site-nav">
+            归档
+          </a>
+        
+      
+        
+          <a href="/tags" class="site-nav">
+            标签
+          </a>
+        
+      
+        
+          <a href="/post/about" class="site-nav">
+            关于
+          </a>
+        
+      
     </div>
-</nav>
-<script>
-    /* 移动端导航栏展开/收起切换 */
-    document.getElementById('changeNavbar').onclick = function () {
-        var element = document.getElementById('navbarSupportedContent');
-        if (element.style.display === 'none' || element.style.display === '') {
-            element.style.display = 'block';
-        } else {
-            element.style.display = 'none';
-        }
-    }
-</script>
-    <div class="post-container">
-        <div class="post-detail gt-bg-theme-color-second">
-            <article class="gt-post-content">
-                <h2 class="post-title">
-                    Kubernetes Cluster Autoscaler
-                </h2>
-                <div class="post-info">
-                    <time class="post-time gt-c-content-color-first">
-                        · 2020-03-31 ·
-                    </time>
-                    
-                        <a href="https://cnbailian.github.io/tag/r8Qp_1n2i/" class="post-tags">
-                            # autoscaler
-                        </a>
-                    
-                        <a href="https://cnbailian.github.io/tag/rKzMZCB0T/" class="post-tags">
-                            # kubernetes
-                        </a>
-                    
-                </div>
-                <div class="post-content">
-                    <p>当我们使用 Kubernetes 部署应用后，会发现如果用户增长速度超过预期，以至于计算资源不够时，你会怎么做呢？Kubernetes 给出的解决方案就是：自动伸缩（auto-scaling），通过自动伸缩组件之间的配合，可以 7*24 小时的监控着你的集群，动态变化负载，以适应你的用户需求。</p>
+  </div>
+  <div class="bottom-container" data-aos="flip-up" data-aos-offset="0">
+    <div class="social-container">
+      
+        
+          <a class="social-link" href="https://github.com/cnbailian" target="_blank">
+            <i class="fab fa-github"></i>
+          </a>
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    </div>
+    <div class="site-description">
+      努力前行
+    </div>
+    <div class="site-footer">
+      Powered by <a href="https://github.com/getgridea/gridea" target="_blank">Gridea</a> | <a class="rss" href="https://cnbailian.github.io/atom.xml" target="_blank">RSS</a>
+    </div>
+  </div>
+</div>
+
+
+      <div class="main-container">
+        <div class="content-container" data-aos="fade-up">
+          <div class="post-detail">
+            <h2 class="post-title">Kubernetes Cluster Autoscaler</h2>
+            <div class="post-date">2020-03-31</div>
+            
+            <div class="post-content" v-pre>
+              <p>当我们使用 Kubernetes 部署应用后，会发现如果用户增长速度超过预期，以至于计算资源不够时，你会怎么做呢？Kubernetes 给出的解决方案就是：自动伸缩（auto-scaling），通过自动伸缩组件之间的配合，可以 7*24 小时的监控着你的集群，动态变化负载，以适应你的用户需求。</p>
 <!--more-->	
 <h2 id="自动伸缩组件">自动伸缩组件</h2>
 <p><strong>水平自动伸缩（Horizontal Pod Autoscaler，HPA）</strong></p>
@@ -290,7 +166,7 @@
 <p>如果使用上述中已实现接入的云厂商，只需要通过 <code>--cloud-provider</code> 选项指定来自哪个云厂商就可以，如果想要对接自己的 IaaS 或有特定的业务逻辑，就需要自己实现 <code>CloudProvider Interface</code> 与 <code>NodeGroupInterface</code>。并将其注册到 <code>builder</code> 中，用于通过 <code>--cloud-provider</code> 参数指定。</p>
 <p><code>builder</code> 在 <code>cloudprovider/builder</code> 中的 <a href="https://github.com/kubernetes/autoscaler/blob/master/cluster-autoscaler/cloudprovider/builder/builder_all.go">builder_all.go</a> 中注册，也可以在其中新建一个自己的 <code>build</code>，通过 go 文件的 <code>+build</code> 编译参数来指定使用的 <code>CloudProvider</code>。</p>
 <p><code>CloudProvider</code> 接口与 <code>NodeGroup</code> 接口在 <a href="https://github.com/kubernetes/autoscaler/blob/master/cluster-autoscaler/cloudprovider/cloud_provider.go">cloud_provider.go</a> 中定义，其中需要注意的是 <code>Refresh</code> 方法，它会在每一次循环（默认 10 秒）的开始时调用，可在此时请求接口并刷新 <code>NodeGroup</code> 状态，通常的做法是增加一个 <code>manager</code> 用于管理状态。有不理解的部分可参考其他 <code>CloudProvider</code> 的实现。</p>
-<pre><code class="language-go">type CloudProvider interface {
+<pre><code>type CloudProvider interface {
 	// Name returns name of the cloud provider.
 	Name() string
 
@@ -420,7 +296,7 @@ type NodeGroup interface {
 }
 </code></pre>
 <h2 id="scaleup-源码解析">ScaleUP 源码解析</h2>
-<pre><code class="language-go">func ScaleUp(context *context.AutoscalingContext, processors *ca_processors.AutoscalingProcessors, clusterStateRegistry *clusterstate.ClusterStateRegistry, unschedulablePods []*apiv1.Pod, nodes []*apiv1.Node, daemonSets []*appsv1.DaemonSet, nodeInfos map[string]*schedulernodeinfo.NodeInfo, ignoredTaints taints.TaintKeySet) (*status.ScaleUpStatus, errors.AutoscalerError) {
+<pre><code>func ScaleUp(context *context.AutoscalingContext, processors *ca_processors.AutoscalingProcessors, clusterStateRegistry *clusterstate.ClusterStateRegistry, unschedulablePods []*apiv1.Pod, nodes []*apiv1.Node, daemonSets []*appsv1.DaemonSet, nodeInfos map[string]*schedulernodeinfo.NodeInfo, ignoredTaints taints.TaintKeySet) (*status.ScaleUpStatus, errors.AutoscalerError) {
 	
 	......
 	// 验证当前集群中所有 ready node 是否来自于 nodeGroups，取得所有非组内的 node
@@ -555,56 +431,62 @@ type NodeGroup interface {
 
 </code></pre>
 
-                </div>
-            </article>
-        </div>
-
-        
-            <div class="next-post">
-                <div class="next gt-c-content-color-first">下一篇</div>
-                <a href="https://cnbailian.github.io/post/dynamic-provisioning-of-kubernetes/" class="post-title gt-a-link">
-                    Kubernetes 的 Dynamic Provisioning 实现
-                </a>
             </div>
-        
+            
+              <div class="tag-container">
+                
+                  <a href="https://cnbailian.github.io/tag/r8Qp_1n2i/" class="tag">
+                    autoscaler
+                  </a>
+                
+                  <a href="https://cnbailian.github.io/tag/rKzMZCB0T/" class="tag">
+                    kubernetes
+                  </a>
+                
+              </div>
+            
+            
+              <div class="next-post">
+                <div class="next">下一篇</div>
+                <a href="https://cnbailian.github.io/post/dynamic-provisioning-of-kubernetes/">
+                  <h3 class="post-title">
+                    Kubernetes 的 Dynamic Provisioning 实现
+                  </h3>
+                </a>
+              </div>
+            
 
-        
+            
 
-        
+          </div>
 
-        
-
-        <div class="site-footer gt-c-content-color-first">
-    <div class="slogan gt-c-content-color-first">努力前行</div>
-    <div class="social-container">
-        
-            
-        
-            
-        
-            
-        
-            
-        
-            
-        
-            
-        
+        </div>
+      </div>
     </div>
-    <div class="footer-info">
-        Powered by <a href="https://github.com/getgridea/gridea" target="_blank">Gridea</a>
-    </div>
-    <div>
-        Theme by <a href="https://imhanjie.com/" target="_blank">imhanjie</a>, Powered by <a
-                href="https://github.com/getgridea/gridea" target="_blank">Gridea | <a href="https://cnbailian.github.io/atom.xml" target="_blank">RSS</a></a>
-    </div>
-</div>
 
-<script>
-  hljs.initHighlightingOnLoad()
+    <script src="https://unpkg.com/aos@next/dist/aos.js"></script>
+<script type="application/javascript">
+
+AOS.init();
+
+var app = new Vue({
+  el: '#app',
+  data: {
+    menuVisible: false,
+  },
+})
+
 </script>
 
-    </div>
-</div>
-</body>
+
+  <script src="https://cdn.bootcss.com/highlight.js/9.12.0/highlight.min.js"></script>
+  <script>
+    hljs.initHighlightingOnLoad()
+  </script>
+
+
+
+
+
+  </body>
 </html>

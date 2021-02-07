@@ -1,404 +1,212 @@
+<!DOCTYPE html>
 <html>
-<head>
-    <meta charset="utf-8" />
-<meta name="description" content="" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+  <head>
+    <meta charset="utf-8" >
 
 <title>kubernetes | 白联</title>
 
-<link rel="shortcut icon" href="https://cnbailian.github.io/favicon.ico?v=1612686156247">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 
-<link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css" rel="stylesheet">
+<link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.7.2/css/all.css" integrity="sha384-fnmOCqbTlWIlj8LyTjo7mOUStjsKC4pOpQbqyi7RrhN7udi9RwhKkMHpvLbHG9Sr" crossorigin="anonymous">
+<link rel="shortcut icon" href="https://cnbailian.github.io/favicon.ico?v=1612687627446">
 <link rel="stylesheet" href="https://cnbailian.github.io/styles/main.css">
-<!-- <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.0/dist/css/bootstrap.min.css"> -->
 
-<style>
-    hr {
-        margin-top: 1rem;
-        margin-bottom: 1rem;
-        border: 0;
-        border-top: 1px solid rgba(0, 0, 0, 0.1);
-    }
-</style>
 
-<script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets/highlight.min.js"></script>
-<script src="https://cdn.bootcss.com/highlight.js/9.15.10/languages/dockerfile.min.js"></script>
-<script src="https://cdn.bootcss.com/highlight.js/9.15.10/languages/dart.min.js"></script>
 
-<!-- <script src="https://cdn.jsdelivr.net/npm/moment@2.27.0/moment.min.js"></script> -->
-<!-- <script src="https://cdn.jsdelivr.net/npm/jquery@3.5.1/dist/jquery.slim.min.js"></script> -->
-<!-- <script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.0/dist/umd/popper.min.js"></script> -->
-<!-- <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.5.0/dist/js/bootstrap.min.js"></script> -->
-<!-- DEMO JS -->
-<!--<script src="media/scripts/index.js"></script>-->
+<link rel="stylesheet" href="https://unpkg.com/aos@next/dist/aos.css" />
+<script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>
 
 
 <script async src="https://www.googletagmanager.com/gtag/js?id=UA-189065612-1"></script>
 <script>
-    window.dataLayer = window.dataLayer || [];
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
 
-    function gtag() {
-        dataLayer.push(arguments);
-    }
-
-    gtag('js', new Date());
-    gtag('config', 'UA-189065612-1');
+  gtag('config', 'UA-189065612-1');
 </script>
 
-</head>
-<body>
-<div class="main gt-bg-theme-color-first">
-    <div class="main-content">
-        <style>
-    /* 导航栏样式 */
-    .navbar {
-        position: relative;
-        display: -ms-flexbox;
-        display: flex;
-        -ms-flex-wrap: wrap;
-        flex-wrap: wrap;
-        -ms-flex-align: center;
-        align-items: center;
-        -ms-flex-pack: justify;
-        justify-content: space-between;
-        padding: 0.5rem 1rem;
-    }
 
-    .navbar-brand {
-        display: inline-block;
-        padding-top: 0.3125rem;
-        padding-bottom: 0.3125rem;
-        margin-right: 1rem;
-        font-size: 1.25rem;
-        line-height: inherit;
-        white-space: nowrap;
-    }
+    <meta name="description" content="努力前行">
+  </head>
+  <body>
+    <div id="app" class="main">
 
-    .navbar-brand:hover,
-    .navbar-brand:focus {
-        text-decoration: none;
-    }
-
-    .navbar-nav {
-        display: -ms-flexbox;
-        display: flex;
-        -ms-flex-direction: column;
-        flex-direction: column;
-        padding-left: 0;
-        margin-bottom: 0;
-        list-style: none;
-    }
-
-    .navbar-collapse {
-        -ms-flex-preferred-size: 100%;
-        flex-basis: 100%;
-        -ms-flex-positive: 1;
-        flex-grow: 1;
-        -ms-flex-align: center;
-        align-items: center;
-    }
-
-    .navbar-toggler {
-        padding: 0.25rem 0.75rem;
-        font-size: 1.25rem;
-        line-height: 1;
-        background-color: transparent;
-        border: 1px solid transparent;
-        border-radius: 0.25rem;
-    }
-
-    .navbar-toggler:hover,
-    .navbar-toggler:focus {
-        text-decoration: none;
-    }
-
-    @media (min-width: 992px) {
-        .navbar-expand-lg {
-            -ms-flex-flow: row nowrap;
-            flex-flow: row nowrap;
-            -ms-flex-pack: start;
-            justify-content: flex-start;
-        }
-
-        .navbar-expand-lg .navbar-nav {
-            -ms-flex-direction: row;
-            flex-direction: row;
-        }
-
-        .navbar-expand-lg .navbar-collapse {
-            display: -ms-flexbox !important;
-            display: flex !important;
-            -ms-flex-preferred-size: auto;
-            flex-basis: auto;
-        }
-
-        .navbar-expand-lg .navbar-toggler {
-            display: none;
-        }
-    }
-
-    @media (max-width: 991px) {
-        #navbarSupportedContent {
-            display: none;
-        }
-    }
-</style>
-<nav class="navbar navbar-expand-lg">
-    <div class="navbar-brand">
-        <img class="user-avatar" src="/images/avatar.png" alt="头像">
-        <div class="site-name gt-c-content-color-first">
-            白联
-        </div>
+      <div class="sidebar" :class="{ 'full-height': menuVisible }">
+  <div class="top-container" data-aos="fade-right">
+    <div class="top-header-container">
+      <a class="site-title-container" href="https://cnbailian.github.io">
+        <img src="https://cnbailian.github.io/images/avatar.png?v=1612687627446" class="site-logo">
+        <h1 class="site-title">白联</h1>
+      </a>
+      <div class="menu-btn" @click="menuVisible = !menuVisible">
+        <div class="line"></div>
+      </div>
     </div>
-    <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarSupportedContent"
-        aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
-        <i class="fas fa-bars gt-c-content-color-first" style="font-size: 18px"></i>
-    </button>
-    <div class="collapse navbar-collapse" id="navbarSupportedContent">
-        <div class="navbar-nav mr-auto" style="text-align: center">
-            
-            <div class="nav-item">
-                
-                <a href="/" class="menu gt-a-link">
-                    首页
-                </a>
-                
-            </div>
-            
-            <div class="nav-item">
-                
-                <a href="/archives" class="menu gt-a-link">
-                    归档
-                </a>
-                
-            </div>
-            
-            <div class="nav-item">
-                
-                <a href="/tags" class="menu gt-a-link">
-                    标签
-                </a>
-                
-            </div>
-            
-            <div class="nav-item">
-                
-                <a href="/post/about" class="menu gt-a-link">
-                    关于
-                </a>
-                
-            </div>
-            
-        </div>
-        <div style="text-align: center">
-            <form id="gridea-search-form" style="position: relative" data-update="1612686156247"
-                action="/search/index.html">
-                <input class="search-input" autocomplete="off" spellcheck="false" name="q" placeholder="搜索文章" />
-                <i class="fas fa-search gt-c-content-color-first" style="position: absolute; top: 9px; left: 10px;"></i>
-            </form>
-        </div>
-    </div>
-</nav>
-<script>
-    /* 移动端导航栏展开/收起切换 */
-    document.getElementById('changeNavbar').onclick = function () {
-        var element = document.getElementById('navbarSupportedContent');
-        if (element.style.display === 'none' || element.style.display === '') {
-            element.style.display = 'block';
-        } else {
-            element.style.display = 'none';
-        }
-    }
-</script>
-        <div class="current-tag-container">
-            <h2 class="title gt-c-content-color-first">
-                #kubernetes
-            </h2>
-        </div>
-        <div class="post-list-container">
-    <div class="post-inner">
+    <div>
+      
         
-            <div class="post gt-bg-theme-color-second">
-                <div class="post-left">
-                    <div>
-                        
-                        <a href="https://cnbailian.github.io/post/kubernetes-network-notes/">
-                            <span class="post-title gt-c-content-color-first">Kubernetes 网络笔记</span>
-                        </a>
-                    </div>
-                    <div class="gt-post-content post-abstract gt-c-content-color-second">
-                        <p>集群网络系统是 Kubernetes 的核心部分，其中 Pod 之间的通信的部分 Kubernetes 没有自己实现，而是交给了外部组件进行处理。Kubernetes 对这部分网络模型的要求是：节点上的 Pod 可以不通过 NAT 和其他任何节点上的 Pod 通信。这就需要一个跨主机的容器网络。</p>
+          <a href="/" class="site-nav">
+            首页
+          </a>
+        
+      
+        
+          <a href="/archives" class="site-nav">
+            归档
+          </a>
+        
+      
+        
+          <a href="/tags" class="site-nav">
+            标签
+          </a>
+        
+      
+        
+          <a href="/post/about" class="site-nav">
+            关于
+          </a>
+        
+      
+    </div>
+  </div>
+  <div class="bottom-container" data-aos="flip-up" data-aos-offset="0">
+    <div class="social-container">
+      
+        
+          <a class="social-link" href="https://github.com/cnbailian" target="_blank">
+            <i class="fab fa-github"></i>
+          </a>
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    </div>
+    <div class="site-description">
+      努力前行
+    </div>
+    <div class="site-footer">
+      Powered by <a href="https://github.com/getgridea/gridea" target="_blank">Gridea</a> | <a class="rss" href="https://cnbailian.github.io/atom.xml" target="_blank">RSS</a>
+    </div>
+  </div>
+</div>
+
+
+      <div class="main-container">
+        <div class="content-container" data-aos="fade-up">
+          <h2 class="current-tag">标签: kubernetes</h2>
+          
+            <article class="post-item">
+              <div class="left">
+                <a href="https://cnbailian.github.io/post/kubernetes-network-notes/">
+                  <h2 class="post-title">Kubernetes 网络笔记</h2>
+                </a>
+                <div class="post-date">
+                  2021-02-07
+                </div>
+                <div class="post-abstract">
+                  <p>集群网络系统是 Kubernetes 的核心部分，其中 Pod 之间的通信的部分 Kubernetes 没有自己实现，而是交给了外部组件进行处理。Kubernetes 对这部分网络模型的要求是：节点上的 Pod 可以不通过 NAT 和其他任何节点上的 Pod 通信。这就需要一个跨主机的容器网络。</p>
 <p>本篇笔记前半部分记录了 VXLAN 技术。VXLAN 全称是 <code>Virtual eXtensible Local Area Network</code>，虚拟可扩展的局域网。它是一种 Overlay 技术，通过三层网络来搭建的二层网络。在笔记的后半部分，通过学习 <a href="https://github.com/coreos/flannel">Flannel</a> 的源码手动搭建跨主机容器网络示例。</p>
 <p>笔记中 vxlan 内容学习自 <a href="https://cizixs.com/about/">cizixs</a> 的两篇博客，一篇<a href="https://cizixs.com/2017/09/25/vxlan-protocol-introduction/">介绍协议原理</a>，一篇<a href="https://cizixs.com/2017/09/28/linux-vxlan/">结合实践</a>。文章写的很详细，而且深入浅出适合学习，建议读者在 vxlan 部分直接看原文。</p>
 
-                    </div>
-                    <div class="post-info">
-                        <time class="post-time gt-c-content-color-first">
-                            发布于 · 2021-02-07 ·
-                        </time>
-                        
-                            <a href="https://cnbailian.github.io/tag/J5TzF-CfE/" class="post-tag">
-                                # container
-                            </a>
-                        
-                            <a href="https://cnbailian.github.io/tag/FWpjsCSvHX/" class="post-tag">
-                                # network
-                            </a>
-                        
-                            <a href="https://cnbailian.github.io/tag/AAwNkhXMLu/" class="post-tag">
-                                # notes
-                            </a>
-                        
-                            <a href="https://cnbailian.github.io/tag/rKzMZCB0T/" class="post-tag">
-                                # kubernetes
-                            </a>
-                        
-                    </div>
                 </div>
-                
-            </div>
-        
-            <div class="post gt-bg-theme-color-second">
-                <div class="post-left">
-                    <div>
-                        
-                        <a href="https://cnbailian.github.io/post/traefik-cannot-proxy-mysql/">
-                            <span class="post-title gt-c-content-color-first">记一次 Traefik 无法代理 MySQL 问题</span>
-                        </a>
-                    </div>
-                    <div class="gt-post-content post-abstract gt-c-content-color-second">
-                        <p>Traefik 从 2.0 版本开始支持 TCP route，我也使用 Traefik 作为 kubernetes 集群的 Ingress，但是在使用过程中，发现 Traefik 为 MySQL 创建的 TCP route 无法正常工作，经过排查搜索后发现了官方人员关于这个疑惑的<a href="https://community.containo.us/t/v2-tcp-router-with-tls-example/2664">解答</a>，以下截取片段：</p>
+              </div>
+              
+            </article>
+          
+            <article class="post-item">
+              <div class="left">
+                <a href="https://cnbailian.github.io/post/traefik-cannot-proxy-mysql/">
+                  <h2 class="post-title">记一次 Traefik 无法代理 MySQL 问题</h2>
+                </a>
+                <div class="post-date">
+                  2020-04-13
+                </div>
+                <div class="post-abstract">
+                  <p>Traefik 从 2.0 版本开始支持 TCP route，我也使用 Traefik 作为 kubernetes 集群的 Ingress，但是在使用过程中，发现 Traefik 为 MySQL 创建的 TCP route 无法正常工作，经过排查搜索后发现了官方人员关于这个疑惑的<a href="https://community.containo.us/t/v2-tcp-router-with-tls-example/2664">解答</a>，以下截取片段：</p>
 <blockquote>
 <p>But be careful: not all protocols based on TCP and using TLS supports the SNI routing or the passthrough. It requires the protocol supporting SNI (for instance MySQL doesn't) and doing a TLS handshake (if it is a STARTTLS, then it does not work).</p>
 </blockquote>
 <p>虽然找到了问题是由于 MySQL 不支持，但也勾起了我的好奇心，什么是 SNI？Traefik 为什么要使用 <code>HostSNI</code> 创建 TCP route 呢？为什么 MySQL 不支持 SNI 呢？于是带着这些问题，我开始寻找答案。</p>
 
-                    </div>
-                    <div class="post-info">
-                        <time class="post-time gt-c-content-color-first">
-                            发布于 · 2020-04-13 ·
-                        </time>
-                        
-                            <a href="https://cnbailian.github.io/tag/Ggr8jBN5X/" class="post-tag">
-                                # traefik
-                            </a>
-                        
-                            <a href="https://cnbailian.github.io/tag/uo70BgPPd0/" class="post-tag">
-                                # mysql
-                            </a>
-                        
-                            <a href="https://cnbailian.github.io/tag/4LGu4RnOWf/" class="post-tag">
-                                # tls
-                            </a>
-                        
-                            <a href="https://cnbailian.github.io/tag/rKzMZCB0T/" class="post-tag">
-                                # kubernetes
-                            </a>
-                        
-                    </div>
                 </div>
-                
-            </div>
-        
-            <div class="post gt-bg-theme-color-second">
-                <div class="post-left">
-                    <div>
-                        
-                        <a href="https://cnbailian.github.io/post/kubernetes-cluster-autoscaler/">
-                            <span class="post-title gt-c-content-color-first">Kubernetes Cluster Autoscaler</span>
-                        </a>
-                    </div>
-                    <div class="gt-post-content post-abstract gt-c-content-color-second">
-                        <p>当我们使用 Kubernetes 部署应用后，会发现如果用户增长速度超过预期，以至于计算资源不够时，你会怎么做呢？Kubernetes 给出的解决方案就是：自动伸缩（auto-scaling），通过自动伸缩组件之间的配合，可以 7*24 小时的监控着你的集群，动态变化负载，以适应你的用户需求。</p>
+              </div>
+              
+            </article>
+          
+            <article class="post-item">
+              <div class="left">
+                <a href="https://cnbailian.github.io/post/kubernetes-cluster-autoscaler/">
+                  <h2 class="post-title">Kubernetes Cluster Autoscaler</h2>
+                </a>
+                <div class="post-date">
+                  2020-03-31
+                </div>
+                <div class="post-abstract">
+                  <p>当我们使用 Kubernetes 部署应用后，会发现如果用户增长速度超过预期，以至于计算资源不够时，你会怎么做呢？Kubernetes 给出的解决方案就是：自动伸缩（auto-scaling），通过自动伸缩组件之间的配合，可以 7*24 小时的监控着你的集群，动态变化负载，以适应你的用户需求。</p>
 
-                    </div>
-                    <div class="post-info">
-                        <time class="post-time gt-c-content-color-first">
-                            发布于 · 2020-03-31 ·
-                        </time>
-                        
-                            <a href="https://cnbailian.github.io/tag/r8Qp_1n2i/" class="post-tag">
-                                # autoscaler
-                            </a>
-                        
-                            <a href="https://cnbailian.github.io/tag/rKzMZCB0T/" class="post-tag">
-                                # kubernetes
-                            </a>
-                        
-                    </div>
                 </div>
-                
-            </div>
-        
-            <div class="post gt-bg-theme-color-second">
-                <div class="post-left">
-                    <div>
-                        
-                        <a href="https://cnbailian.github.io/post/dynamic-provisioning-of-kubernetes/">
-                            <span class="post-title gt-c-content-color-first">Kubernetes 的 Dynamic Provisioning 实现</span>
-                        </a>
-                    </div>
-                    <div class="gt-post-content post-abstract gt-c-content-color-second">
-                        <p>存储一直是容器运行的关键部分，Kubernetes 为此做了很多努力，从一开始的 Pod Volumes、PV(Persistent Volumes) 与 PVC(Persistent Volume Claim)，到 StorageClass 与 Dynamic Provisioning，再到现在 “out-of-tree” 的 CSI(Container Storage Interface)，Kubernetes 社区一直在演进存储的实现。</p>
+              </div>
+              
+            </article>
+          
+            <article class="post-item">
+              <div class="left">
+                <a href="https://cnbailian.github.io/post/dynamic-provisioning-of-kubernetes/">
+                  <h2 class="post-title">Kubernetes 的 Dynamic Provisioning 实现</h2>
+                </a>
+                <div class="post-date">
+                  2020-03-11
+                </div>
+                <div class="post-abstract">
+                  <p>存储一直是容器运行的关键部分，Kubernetes 为此做了很多努力，从一开始的 Pod Volumes、PV(Persistent Volumes) 与 PVC(Persistent Volume Claim)，到 StorageClass 与 Dynamic Provisioning，再到现在 “out-of-tree” 的 CSI(Container Storage Interface)，Kubernetes 社区一直在演进存储的实现。</p>
 <p>前面基础的就不讲了，我们从 StorageClass 与 Dynamic Provisioning 开始了解。</p>
 
-                    </div>
-                    <div class="post-info">
-                        <time class="post-time gt-c-content-color-first">
-                            发布于 · 2020-03-11 ·
-                        </time>
-                        
-                            <a href="https://cnbailian.github.io/tag/rKzMZCB0T/" class="post-tag">
-                                # kubernetes
-                            </a>
-                        
-                            <a href="https://cnbailian.github.io/tag/tZFxZTmHR1/" class="post-tag">
-                                # storage
-                            </a>
-                        
-                    </div>
                 </div>
-                
-            </div>
-        
-    </div>
-</div>
-        <div class="pagination-container">
-    
-    
+              </div>
+              
+            </article>
+          
+
+          <div class="pagination-container">
+  
+  
 </div>
 
-        <div class="site-footer gt-c-content-color-first">
-    <div class="slogan gt-c-content-color-first">努力前行</div>
-    <div class="social-container">
-        
-            
-        
-            
-        
-            
-        
-            
-        
-            
-        
-            
-        
+        </div>
+      </div>
     </div>
-    <div class="footer-info">
-        Powered by <a href="https://github.com/getgridea/gridea" target="_blank">Gridea</a>
-    </div>
-    <div>
-        Theme by <a href="https://imhanjie.com/" target="_blank">imhanjie</a>, Powered by <a
-                href="https://github.com/getgridea/gridea" target="_blank">Gridea | <a href="https://cnbailian.github.io/atom.xml" target="_blank">RSS</a></a>
-    </div>
-</div>
 
-<script>
-  hljs.initHighlightingOnLoad()
+    <script src="https://unpkg.com/aos@next/dist/aos.js"></script>
+<script type="application/javascript">
+
+AOS.init();
+
+var app = new Vue({
+  el: '#app',
+  data: {
+    menuVisible: false,
+  },
+})
+
 </script>
 
-    </div>
-</div>
-</body>
+
+  <script src="https://cdn.bootcss.com/highlight.js/9.12.0/highlight.min.js"></script>
+  <script>
+    hljs.initHighlightingOnLoad()
+  </script>
+
+
+
+
+
+  </body>
 </html>
