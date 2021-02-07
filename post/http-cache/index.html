@@ -4,7 +4,7 @@
 <meta name="description" content="" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-<title>标签 | 白联</title>
+<title>HTTP 缓存小记 | 白联</title>
 
 <link rel="shortcut icon" href="https://cnbailian.github.io/favicon.ico?v=1612686156247">
 
@@ -45,11 +45,11 @@
     gtag('config', 'UA-189065612-1');
 </script>
 
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.12.0/dist/katex.css">
 </head>
 <body>
 <div class="main gt-bg-theme-color-first">
-    <div class="main-content">
-        <style>
+    <style>
     /* 导航栏样式 */
     .navbar {
         position: relative;
@@ -210,70 +210,59 @@
         }
     }
 </script>
-        <div class="post-container">
-            <div class="post-detail gt-bg-theme-color-first">
-                <article class="gt-post-content">
-                    <h2 class="post-title">标签</h2>
-        <div class="tags-container">
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/J5TzF-CfE/">#container</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/FWpjsCSvHX/">#network</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/AAwNkhXMLu/">#notes</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/rKzMZCB0T/">#kubernetes</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/Ggr8jBN5X/">#traefik</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/uo70BgPPd0/">#mysql</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/4LGu4RnOWf/">#tls</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/r8Qp_1n2i/">#autoscaler</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/tZFxZTmHR1/">#storage</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/XGk69ns-R/">#vue</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/N6lqfN6NhF/">#frontend</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/aa1vxy4S8/">#go</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/-YnRsaDfq/">#REST</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/wzarT9Fa4G/">#API</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/RqAiYOZyw/">#oauth</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/Iv0mMl-VfV/">#php</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/OqFOv9br5/">#hypertext</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/c8Y4lGZiY/">#HTTP</a>
-            
+    <div class="post-container">
+        <div class="post-detail gt-bg-theme-color-second">
+            <article class="gt-post-content">
+                <h2 class="post-title">
+                    HTTP 缓存小记
+                </h2>
+                <div class="post-info">
+                    <time class="post-time gt-c-content-color-first">
+                        · 2016-09-10 ·
+                    </time>
+                    
+                        <a href="https://cnbailian.github.io/tag/c8Y4lGZiY/" class="post-tags">
+                            # HTTP
+                        </a>
+                    
+                </div>
+                <div class="post-content">
+                    <p>参考文章:https://developers.google.com/web/fundamentals/performance/optimizing-content-efficiency/http-caching?hl=zh-cn</p>
+<p><strong>http的缓存有两种方案<code>ETag</code>与<code>Last-Modified</code> 本文讲的是第一种,也就是参考文章里所讲的</strong></p>
+<!-- more -->
+<p><code>ETag</code>缓存方案的实现很简单,服务器返回响应头的时,加上缓存时间与验证令牌(ETag),如有需要还可以加上内容类型、长度等</p>
+<pre><code>200 OK
+Cache-Controller: max-age=60
+ETag: &quot;xxxxxxxxxxxxx&quot;
+Content-Lenght: 1024
+</code></pre>
+<p>上面的示例代码中,服务器告诉了客户端,可以缓存60秒,验证令牌为:xxxxxxxxxxxxx,内容长度是1024</p>
+<p>客户端在收到响应头时,可在本地缓存一个60秒的内容,60秒后,重新访问资源,并在请求头中附带<code>If-None-Match</code>值为前文收到的验证令牌.<br>
+服务器根据客户端提供的验证令牌,判断资源是否有更新,如果没有更新,则返回<code>304</code>+空的内容,响应头中附带新的可缓存时间,如果资源有更新,则返回<code>200</code>+资源内容,响应头中附带缓存时间与新的验证令牌</p>
+<pre><code>资源无更新示例:
+304 Not Modified
+Cache-Controller: max-age=60
+
+资源有更新示例:
+200 OK
+Cache-Controller: max-age=60
+ETag: &quot;ooooooooooooo&quot;
+Content-Lenght: 1024
+</code></pre>
+<p>更详细的缓存方案也是半懂不懂,有时间应该买本《HTTP权威指南》.</p>
+
+                </div>
+            </article>
         </div>
-    </article>
-</div>
-</div>
+
+        
+
+        
+
+        
+
+        
+
         <div class="site-footer gt-c-content-color-first">
     <div class="slogan gt-c-content-color-first">努力前行</div>
     <div class="social-container">

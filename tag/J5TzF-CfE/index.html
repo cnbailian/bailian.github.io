@@ -4,7 +4,7 @@
 <meta name="description" content="" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-<title>标签 | 白联</title>
+<title>container | 白联</title>
 
 <link rel="shortcut icon" href="https://cnbailian.github.io/favicon.ico?v=1612686156247">
 
@@ -210,70 +210,95 @@
         }
     }
 </script>
-        <div class="post-container">
-            <div class="post-detail gt-bg-theme-color-first">
-                <article class="gt-post-content">
-                    <h2 class="post-title">标签</h2>
-        <div class="tags-container">
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/J5TzF-CfE/">#container</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/FWpjsCSvHX/">#network</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/AAwNkhXMLu/">#notes</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/rKzMZCB0T/">#kubernetes</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/Ggr8jBN5X/">#traefik</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/uo70BgPPd0/">#mysql</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/4LGu4RnOWf/">#tls</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/r8Qp_1n2i/">#autoscaler</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/tZFxZTmHR1/">#storage</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/XGk69ns-R/">#vue</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/N6lqfN6NhF/">#frontend</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/aa1vxy4S8/">#go</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/-YnRsaDfq/">#REST</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/wzarT9Fa4G/">#API</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/RqAiYOZyw/">#oauth</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/Iv0mMl-VfV/">#php</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/OqFOv9br5/">#hypertext</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/c8Y4lGZiY/">#HTTP</a>
-            
+        <div class="current-tag-container">
+            <h2 class="title gt-c-content-color-first">
+                #container
+            </h2>
         </div>
-    </article>
+        <div class="post-list-container">
+    <div class="post-inner">
+        
+            <div class="post gt-bg-theme-color-second">
+                <div class="post-left">
+                    <div>
+                        
+                        <a href="https://cnbailian.github.io/post/kubernetes-network-notes/">
+                            <span class="post-title gt-c-content-color-first">Kubernetes 网络笔记</span>
+                        </a>
+                    </div>
+                    <div class="gt-post-content post-abstract gt-c-content-color-second">
+                        <p>集群网络系统是 Kubernetes 的核心部分，其中 Pod 之间的通信的部分 Kubernetes 没有自己实现，而是交给了外部组件进行处理。Kubernetes 对这部分网络模型的要求是：节点上的 Pod 可以不通过 NAT 和其他任何节点上的 Pod 通信。这就需要一个跨主机的容器网络。</p>
+<p>本篇笔记前半部分记录了 VXLAN 技术。VXLAN 全称是 <code>Virtual eXtensible Local Area Network</code>，虚拟可扩展的局域网。它是一种 Overlay 技术，通过三层网络来搭建的二层网络。在笔记的后半部分，通过学习 <a href="https://github.com/coreos/flannel">Flannel</a> 的源码手动搭建跨主机容器网络示例。</p>
+<p>笔记中 vxlan 内容学习自 <a href="https://cizixs.com/about/">cizixs</a> 的两篇博客，一篇<a href="https://cizixs.com/2017/09/25/vxlan-protocol-introduction/">介绍协议原理</a>，一篇<a href="https://cizixs.com/2017/09/28/linux-vxlan/">结合实践</a>。文章写的很详细，而且深入浅出适合学习，建议读者在 vxlan 部分直接看原文。</p>
+
+                    </div>
+                    <div class="post-info">
+                        <time class="post-time gt-c-content-color-first">
+                            发布于 · 2021-02-07 ·
+                        </time>
+                        
+                            <a href="https://cnbailian.github.io/tag/J5TzF-CfE/" class="post-tag">
+                                # container
+                            </a>
+                        
+                            <a href="https://cnbailian.github.io/tag/FWpjsCSvHX/" class="post-tag">
+                                # network
+                            </a>
+                        
+                            <a href="https://cnbailian.github.io/tag/AAwNkhXMLu/" class="post-tag">
+                                # notes
+                            </a>
+                        
+                            <a href="https://cnbailian.github.io/tag/rKzMZCB0T/" class="post-tag">
+                                # kubernetes
+                            </a>
+                        
+                    </div>
+                </div>
+                
+            </div>
+        
+            <div class="post gt-bg-theme-color-second">
+                <div class="post-left">
+                    <div>
+                        
+                        <a href="https://cnbailian.github.io/post/container-netwrok-notes/">
+                            <span class="post-title gt-c-content-color-first">容器网络学习笔记</span>
+                        </a>
+                    </div>
+                    <div class="gt-post-content post-abstract gt-c-content-color-second">
+                        <p>容器技术涉及的知识点很多，包括进程隔离、容器网络、分层存储等等，我对其中容器网络部分很感兴趣，并有较为深入的学习。此篇文章用于记录我的学习笔记。</p>
+
+                    </div>
+                    <div class="post-info">
+                        <time class="post-time gt-c-content-color-first">
+                            发布于 · 2021-02-04 ·
+                        </time>
+                        
+                            <a href="https://cnbailian.github.io/tag/J5TzF-CfE/" class="post-tag">
+                                # container
+                            </a>
+                        
+                            <a href="https://cnbailian.github.io/tag/FWpjsCSvHX/" class="post-tag">
+                                # network
+                            </a>
+                        
+                            <a href="https://cnbailian.github.io/tag/AAwNkhXMLu/" class="post-tag">
+                                # notes
+                            </a>
+                        
+                    </div>
+                </div>
+                
+            </div>
+        
+    </div>
 </div>
+        <div class="pagination-container">
+    
+    
 </div>
+
         <div class="site-footer gt-c-content-color-first">
     <div class="slogan gt-c-content-color-first">努力前行</div>
     <div class="social-container">

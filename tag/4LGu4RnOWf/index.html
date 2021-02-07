@@ -4,7 +4,7 @@
 <meta name="description" content="" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-<title>标签 | 白联</title>
+<title>tls | 白联</title>
 
 <link rel="shortcut icon" href="https://cnbailian.github.io/favicon.ico?v=1612686156247">
 
@@ -210,70 +210,63 @@
         }
     }
 </script>
-        <div class="post-container">
-            <div class="post-detail gt-bg-theme-color-first">
-                <article class="gt-post-content">
-                    <h2 class="post-title">标签</h2>
-        <div class="tags-container">
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/J5TzF-CfE/">#container</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/FWpjsCSvHX/">#network</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/AAwNkhXMLu/">#notes</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/rKzMZCB0T/">#kubernetes</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/Ggr8jBN5X/">#traefik</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/uo70BgPPd0/">#mysql</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/4LGu4RnOWf/">#tls</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/r8Qp_1n2i/">#autoscaler</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/tZFxZTmHR1/">#storage</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/XGk69ns-R/">#vue</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/N6lqfN6NhF/">#frontend</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/aa1vxy4S8/">#go</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/-YnRsaDfq/">#REST</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/wzarT9Fa4G/">#API</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/RqAiYOZyw/">#oauth</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/Iv0mMl-VfV/">#php</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/OqFOv9br5/">#hypertext</a>
-            
-                <a class="tag gt-c-content-color-first gt-a-link"
-                   href="https://cnbailian.github.io/tag/c8Y4lGZiY/">#HTTP</a>
-            
+        <div class="current-tag-container">
+            <h2 class="title gt-c-content-color-first">
+                #tls
+            </h2>
         </div>
-    </article>
+        <div class="post-list-container">
+    <div class="post-inner">
+        
+            <div class="post gt-bg-theme-color-second">
+                <div class="post-left">
+                    <div>
+                        
+                        <a href="https://cnbailian.github.io/post/traefik-cannot-proxy-mysql/">
+                            <span class="post-title gt-c-content-color-first">记一次 Traefik 无法代理 MySQL 问题</span>
+                        </a>
+                    </div>
+                    <div class="gt-post-content post-abstract gt-c-content-color-second">
+                        <p>Traefik 从 2.0 版本开始支持 TCP route，我也使用 Traefik 作为 kubernetes 集群的 Ingress，但是在使用过程中，发现 Traefik 为 MySQL 创建的 TCP route 无法正常工作，经过排查搜索后发现了官方人员关于这个疑惑的<a href="https://community.containo.us/t/v2-tcp-router-with-tls-example/2664">解答</a>，以下截取片段：</p>
+<blockquote>
+<p>But be careful: not all protocols based on TCP and using TLS supports the SNI routing or the passthrough. It requires the protocol supporting SNI (for instance MySQL doesn't) and doing a TLS handshake (if it is a STARTTLS, then it does not work).</p>
+</blockquote>
+<p>虽然找到了问题是由于 MySQL 不支持，但也勾起了我的好奇心，什么是 SNI？Traefik 为什么要使用 <code>HostSNI</code> 创建 TCP route 呢？为什么 MySQL 不支持 SNI 呢？于是带着这些问题，我开始寻找答案。</p>
+
+                    </div>
+                    <div class="post-info">
+                        <time class="post-time gt-c-content-color-first">
+                            发布于 · 2020-04-13 ·
+                        </time>
+                        
+                            <a href="https://cnbailian.github.io/tag/Ggr8jBN5X/" class="post-tag">
+                                # traefik
+                            </a>
+                        
+                            <a href="https://cnbailian.github.io/tag/uo70BgPPd0/" class="post-tag">
+                                # mysql
+                            </a>
+                        
+                            <a href="https://cnbailian.github.io/tag/4LGu4RnOWf/" class="post-tag">
+                                # tls
+                            </a>
+                        
+                            <a href="https://cnbailian.github.io/tag/rKzMZCB0T/" class="post-tag">
+                                # kubernetes
+                            </a>
+                        
+                    </div>
+                </div>
+                
+            </div>
+        
+    </div>
 </div>
+        <div class="pagination-container">
+    
+    
 </div>
+
         <div class="site-footer gt-c-content-color-first">
     <div class="slogan gt-c-content-color-first">努力前行</div>
     <div class="social-container">
