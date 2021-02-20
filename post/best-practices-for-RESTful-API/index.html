@@ -8,9 +8,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 
 <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.7.2/css/all.css" integrity="sha384-fnmOCqbTlWIlj8LyTjo7mOUStjsKC4pOpQbqyi7RrhN7udi9RwhKkMHpvLbHG9Sr" crossorigin="anonymous">
-<link rel="shortcut icon" href="https://cnbailian.github.io/favicon.ico?v=1612688334642">
+<link rel="shortcut icon" href="https://cnbailian.github.io/favicon.ico?v=1613809307220">
 <link rel="stylesheet" href="https://cnbailian.github.io/styles/main.css">
 
+
+  
+    <link rel="stylesheet" href="https://unpkg.com/gitalk/dist/gitalk.css" />
+  
+
+  
 
 
 <link rel="stylesheet" href="https://unpkg.com/aos@next/dist/aos.css" />
@@ -38,7 +44,7 @@
   <div class="top-container" data-aos="fade-right">
     <div class="top-header-container">
       <a class="site-title-container" href="https://cnbailian.github.io">
-        <img src="https://cnbailian.github.io/images/avatar.png?v=1612688334642" class="site-logo">
+        <img src="https://cnbailian.github.io/images/avatar.png?v=1613809307220" class="site-logo">
         <h1 class="site-title">白联</h1>
       </a>
       <div class="menu-btn" @click="menuVisible = !menuVisible">
@@ -371,12 +377,11 @@
 <h3 id="写在最后">写在最后</h3>
 <p>在我看来， RESTful 真的很好，简单直观，规范易懂，贴合web，更易于测试 等等等等， 但是 毕竟只是架构风格，过度纠结如何遵守规范反而是违背了设计API的初衷.我在实践中也有很多不遵守的地方，也曾经纠结过很多东西，事后证明大部分不过是浪费时间罢了。</p>
 <p>API的设计本身就是要从使用者的角度出发，如果是对外的接口，要尽量做的规范，这样能适应大多数人，对内的接口还是要多听取下使用者的意见，针对于本身的业务来进行调整。</p>
-<p><strong>This</strong></p>
 <p>本编文章是总结我对于REST与RESTful的理解，与实践结合而成。</p>
 <p><a href="#%E7%90%86%E8%A7%A3-REST-%E4%B8%8E-RESTful">《理解 REST 与 RESTful》</a> 一章来源与我看过博士的论文(英语不好，看的中文译本)后，融合网络上的RESTful规范理解而成。</p>
 <p><a href="#RESTful-API-%E5%AE%9E%E8%B7%B5">《RESTful API 实践》</a> 一章的来源: 大部分知识点源自我对于 《Best Practices for Designing a Pragmatic RESTful API》的理解，剩余部分是在网络中整理提炼出来的知识，将两者整合，应用于实践后的我的理解。</p>
-<p><strong>如果你认为有些地方有问题，或者歧义比较大的话，还望指出，thanks.</strong></p>
-<p><em>因为要整理的知识点很多，也很杂乱，所以写了一个chrome扩展来帮助自己做笔记，没有上架，还在完善中，有兴趣的同学可以去我的github上down来试一试。</em></p>
+<p><strong>如果你认为有些地方有问题或者有歧义，还望指出，谢谢。</strong></p>
+<p><em>因为要整理的知识点很多，也很杂乱，所以写了一个 chrome 扩展来帮助自己做笔记，没有上架，还在完善中，有兴趣的同学可以去我的 github 上下载试一试。</em></p>
 <p>终于写完了,断断续续的写了好几天,在以后的工作过程中,如果还有新的内容,也会一并更新在这里 - 2016-12-30</p>
 <h3 id="参考文章">参考文章</h3>
 <ol>
@@ -469,6 +474,12 @@
             
 
             
+              
+                <div id="gitalk-container" data-aos="fade-in"></div>
+              
+
+              
+            
 
           </div>
 
@@ -496,6 +507,29 @@ var app = new Vue({
     hljs.initHighlightingOnLoad()
   </script>
 
+
+
+
+  
+    <script src="https://unpkg.com/gitalk/dist/gitalk.min.js"></script>
+    <script>
+
+      var gitalk = new Gitalk({
+        clientID: '',
+        clientSecret: '',
+        repo: '',
+        owner: '',
+        admin: [''],
+        id: (location.pathname).substring(0, 49),      // Ensure uniqueness and length less than 50
+        distractionFreeMode: false  // Facebook-like distraction free mode
+      })
+
+      gitalk.render('gitalk-container')
+
+    </script>
+  
+
+  
 
 
 
