@@ -2,7 +2,7 @@
 <feed xmlns="http://www.w3.org/2005/Atom">
     <id>https://cnbailian.github.io</id>
     <title>白联</title>
-    <updated>2021-02-23T03:20:58.434Z</updated>
+    <updated>2021-05-08T03:15:00.959Z</updated>
     <generator>https://github.com/jpmonette/feed</generator>
     <link rel="alternate" href="https://cnbailian.github.io"/>
     <link rel="self" href="https://cnbailian.github.io/atom.xml"/>
@@ -10,6 +10,1411 @@
     <logo>https://cnbailian.github.io/images/avatar.png</logo>
     <icon>https://cnbailian.github.io/favicon.ico</icon>
     <rights>All rights reserved 2021, 白联</rights>
+    <entry>
+        <title type="html"><![CDATA[从 SampleController 项目看 kubernetes controller 的设计——笔记]]></title>
+        <id>https://cnbailian.github.io/post/kubernetes-samplecontroller/</id>
+        <link href="https://cnbailian.github.io/post/kubernetes-samplecontroller/">
+        </link>
+        <updated>2021-05-08T03:10:53.000Z</updated>
+        <content type="html"><![CDATA[<h2 id="总结">总结</h2>
+<figure data-type="image" tabindex="1"><img src="https://tva1.sinaimg.cn/large/0081Kckwly1glrrw7x90hj31va0ton44.jpg" alt="Kubernetes Informer" loading="lazy"></figure>
+<h2 id="设计理念">设计理念</h2>
+<p>client-go informer</p>
+<h3 id="kubernetes-resource-type">Kubernetes Resource Type</h3>
+<p><strong>Scheme</strong></p>
+<p>Scheme 提供了 Go type 与对应 GVK 的映射。即给定 Go type 就知道对应 GVK，给定 GVK 就知道对应 Go type</p>
+<h3 id="informer">Informer</h3>
+<p><strong>list/watch 机制</strong></p>
+<p>在 kubernetes 的设计中，使用 etcd 存储数据，apiserver 作为统一入口，任何对资源的操作都必须经过 apiserver。</p>
+<p>apiserver 对资源提供了 list watch 两个接口。list 基于 HTTP 短链接实现，用于获取资源列表。watch 基于 HTTP 长链接实现，用于获取资源的变更。</p>
+<p>watch 基于 HTTP chunked 实现持久链接。服务端每次传输资源的事件信息。</p>
+<p>设计理念</p>
+<p>通过 list watch 的组合，保证了消息的可靠性，避免因为消息丢失而造成状态不一致场景。</p>
+<p>消息必须是实时的，每当 apiserver 产生资源变更事件，都会将事件实时的推送给客户端，保证了消息的实时性。</p>
+<p>kubernetes 在每个资源的事件都有一个 resourceVersion 属性，这个属性是递增的数字，所以当客户端并发处理同一资源的事件时，它可以通过对比 resourceVersion 来保证消息的顺序性。</p>
+<p>通过 list 获取资源，写入 cache，然后通过 watch 维护缓存，避免了频繁获取资源的性能损耗。通过 resyncPeriod 维护 list，避免发生不一致现象。</p>
+<p><strong>informer 工作流程</strong></p>
+<ol>
+<li>Informer 使用 Reflector 包建立与 apiserver 的连接。Reflector 使用 ListAndWatch 方法监听该分类下所有资源对象，list 首先会将 resourceVersion 设为 0，然后通过 watch 监听该 resourceVersion 之后的所有变化，若中途出现异常，Reflector 会从断开处尝试重现所有变化。当 Reflector watch 到资源对象的事件通知时，会将该事件与它对应的资源对象这个组合（被称为增量 Delta），放入 DeltaFIFO 队列中。</li>
+<li>Informer 会 pop 这个 DeltaFIFO 队列中的 Deltas，通过 Indexer 根据事件类型更新缓存。</li>
+<li>同时也会去调用事先注册的 ResourceEventHandler 回调函数进行处理。</li>
+</ol>
+<p><strong>Custom Controller 工作流程</strong></p>
+<ol>
+<li>在 ResourceEventhandler 回调函数中，其实只是做了一些很简单的过滤，然后将关心变更的 Object 放在 workqueue 里面</li>
+<li>Controller 从 workqueue 里面取出 Object，启动一个 worker 来执行自己的业务逻辑</li>
+<li>在 worker 中就可以使用 lister 来获取 resource，而不用频繁的访问 apiserver，因为 apiserver 中的 resource 的变更都会反映到本地的 cache 中</li>
+</ol>
+<h2 id="源码">源码</h2>
+<p>结合《Kubernetes 源码剖析》和 sampleController 的实际使用来学习 Informer</p>
+<h3 id="使用">使用</h3>
+<p>通过 <code>k8s.io/client-go/informers</code> 或生成的 <code>informers</code> 调用 <code>NewSharedInformerFactory</code> 创建 InformerFactory。</p>
+<pre><code class="language-go">kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClient, time.Second*30)
+exampleInformerFactory := informers.NewSharedInformerFactory(exampleClient, time.Second*30)
+</code></pre>
+<p>对具体的 Resources 添加 Events，也就是事件回调函数，正常情况下，在回调中需要添加到 workQueue 中</p>
+<p>事件分为三种：Added、Updated、Deleted。那么 kubebuilder 的 generic 是什么...</p>
+<pre><code class="language-go">kubeInformerFactory.Apps().V1().Deployments().Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: controller.handleObject,
+		UpdateFunc: func(old, new interface{}) {
+			newDepl := new.(*appsv1.Deployment)
+			oldDepl := old.(*appsv1.Deployment)
+			if newDepl.ResourceVersion == oldDepl.ResourceVersion {
+				// Periodic resync will send update events for all known Deployments.
+				// Two different versions of the same Deployment will always have different RVs.
+				return
+			}
+			controller.handleObject(new)
+		},
+		DeleteFunc: controller.handleObject,
+	})
+
+exampleInformerFactory.Samplecontroller().V1alpha1().Foos().Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: controller.enqueueFoo,
+		UpdateFunc: func(old, new interface{}) {
+			controller.enqueueFoo(new)
+		},
+	})
+
+
+func (c *Controller) enqueueFoo(obj interface{}) {
+	var key string
+	var err error
+	if key, err = cache.MetaNamespaceKeyFunc(obj); err != nil {
+		utilruntime.HandleError(err)
+		return
+	}
+	c.workqueue.Add(key)
+}
+</code></pre>
+<p>最后 start，因为 informer 是持久运行的，所以需要通过 channel 来发送结束信号</p>
+<pre><code class="language-go">kubeInformerFactory.Start(stopCh)
+exampleInformerFactory.Start(stopCh)
+</code></pre>
+<h3 id="sharedinformerfactory">SharedInformerFactory</h3>
+<p><code>informers.NewSharedInformerFactory</code> 函数实例化了 <code>SharedInformerFactory</code> 对象，它接收两个参数：第1个参数 <code>clientset</code> 是用于与Kubernetes API Server交互的客户端，第2个参数 <code>time.Minute</code> 用于设置多久进行一次 resync（重新同步），resync 会周期性地执行 List 操作，将所有的资源存放在 <code>Informer Store</code> 中，如果该参数为0，则禁用 resync 功能。</p>
+<pre><code class="language-go">func NewSharedInformerFactory(client kubernetes.Interface, defaultResync time.Duration) SharedInformerFactory {
+	return NewSharedInformerFactoryWithOptions(client, defaultResync)
+}
+func NewSharedInformerFactoryWithOptions(client kubernetes.Interface, defaultResync time.Duration, options ...SharedInformerOption) SharedInformerFactory {
+	factory := &amp;sharedInformerFactory{
+		client:           client,
+		namespace:        v1.NamespaceAll,
+		defaultResync:    defaultResync,
+		informers:        make(map[reflect.Type]cache.SharedIndexInformer),
+		startedInformers: make(map[reflect.Type]bool),
+		customResync:     make(map[reflect.Type]time.Duration),
+	}
+
+	// Apply all options
+  // 如果不熟悉这种参数传递模式，可以参考 Rob Pike 的文章：https://commandcenter.blogspot.com/2014/01/self-referential-functions-and-design.html
+  // 相关文章中文版：https://driverzhang.github.io/post/golang友好的设计api参数可选项/
+	for _, opt := range options {
+		factory = opt(factory)
+	}
+
+	return factory
+}
+</code></pre>
+<p><strong>Informer Shared 机制</strong></p>
+<p>从上面的代码中可以看出，我们 New 的是一个 SharedInformerFactory，它是可以被共享使用的。</p>
+<p>Shared Informer Factory 可以使同一类资源共享一个 Informer，这样可以节约很多资源。</p>
+<pre><code class="language-go">// 实际上是调用 factory 的 InformerFor 方法
+kubeInformerFactory.Apps().V1().Deployments().Informer()
+
+func (f *deploymentInformer) Informer() cache.SharedIndexInformer {
+	return f.factory.InformerFor(&amp;appsv1.Deployment{}, f.defaultInformer)
+}
+
+type sharedInformerFactory struct {
+  ......
+	informers map[reflect.Type]cache.SharedIndexInformer
+  ......
+}
+
+// InformerFor 通过 map 数据结构存储 Informer，多次添加也会共享一个 informer。
+func (f *sharedInformerFactory) InformerFor(obj runtime.Object, newFunc internalinterfaces.NewInformerFunc) cache.SharedIndexInformer {
+	f.lock.Lock()
+	defer f.lock.Unlock()
+
+	informerType := reflect.TypeOf(obj)
+	informer, exists := f.informers[informerType]
+	if exists {
+		return informer
+	}
+
+	resyncPeriod, exists := f.customResync[informerType]
+	if !exists {
+		resyncPeriod = f.defaultResync
+	}
+
+	informer = newFunc(f.client, resyncPeriod)
+	f.informers[informerType] = informer
+
+	return informer
+}
+</code></pre>
+<p>上面可以看出，sharedInformerFactory 的 InformerFor 方法会实例化一个 informer 放入 <code>f.informers</code> 中，看下 deployment 传入的 <code>newFunc</code> 是什么：</p>
+<pre><code class="language-go">// 可以看到，传入的是 deploymentInformer.defaultInformer 的闭包
+func (f *deploymentInformer) Informer() cache.SharedIndexInformer {
+	return f.factory.InformerFor(&amp;appsv1.Deployment{}, f.defaultInformer)
+}
+
+// defaultInformer 的参数与 NewSharedInformerFactory 的参数一致，用途也一致
+func (f *deploymentInformer) defaultInformer(client kubernetes.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
+	return NewFilteredDeploymentInformer(client, f.namespace, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
+}
+
+// 实例化 SharedIndexInformer，传入对应资源的 List and Watch
+func NewFilteredDeploymentInformer(client kubernetes.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
+	return cache.NewSharedIndexInformer(
+		&amp;cache.ListWatch{
+			ListFunc: func(options metav1.ListOptions) (runtime.Object, error) {
+				if tweakListOptions != nil {
+					tweakListOptions(&amp;options)
+				}
+				return client.AppsV1().Deployments(namespace).List(context.TODO(), options)
+			},
+			WatchFunc: func(options metav1.ListOptions) (watch.Interface, error) {
+				if tweakListOptions != nil {
+					tweakListOptions(&amp;options)
+				}
+				return client.AppsV1().Deployments(namespace).Watch(context.TODO(), options)
+			},
+		},
+		&amp;appsv1.Deployment{},
+		resyncPeriod,
+		indexers,
+	)
+}
+</code></pre>
+<h3 id="sharedindexinformer">SharedIndexInformer</h3>
+<p>最后，来看下 informer 的 Start，以及 informer 如何利用 List and Watch。</p>
+<pre><code class="language-go">func (f *sharedInformerFactory) Start(stopCh &lt;-chan struct{}) {
+	f.lock.Lock()
+	defer f.lock.Unlock()
+
+	for informerType, informer := range f.informers {
+		if !f.startedInformers[informerType] {
+			go informer.Run(stopCh)
+			f.startedInformers[informerType] = true
+		}
+	}
+}
+
+// 从上面的代码中可以看到 informer 是传入的 SharedIndexInformer
+// ShareIndexInformer 有三个主要组件：
+// 第一个 indexed local cache；Indexer
+// 第二个是 controller，它使用 ListerWatcher 获取资源，并将其推送到 DeltaFIFO 中
+// 同时从 FIFO 中取出 Deltas values，并通过 sharedIndexInformer::HandleDeltas 方法处理
+// 每个 Deltas，都会更新 local cache，并将相关通知发送给 sharedProcessor
+// 第三个组件就是 sharedProcessor，它会负责转发这些通知给 listeners
+func (s *sharedIndexInformer) Run(stopCh &lt;-chan struct{}) {
+	defer utilruntime.HandleCrash()
+
+  // deltaFIFO 可以分开理解
+  // FIFO 是一个先进先出的队列
+  // Delta 代表队列中存储的是 Delta 对象，Delta 是一个资源对象存储，它可以保存资源对象的操作类型
+  // 例如 Added、Updated、Deleted、Sync 等操作类型
+	fifo := NewDeltaFIFOWithOptions(DeltaFIFOOptions{
+		KnownObjects:          s.indexer,
+		EmitDeltaTypeReplaced: true,
+	})
+
+	cfg := &amp;Config{
+		Queue:            fifo,
+		ListerWatcher:    s.listerWatcher,
+		ObjectType:       s.objectType,
+		FullResyncPeriod: s.resyncCheckPeriod,
+		RetryOnError:     false,
+		ShouldResync:     s.processor.shouldResync,
+
+		Process:           s.HandleDeltas,
+		WatchErrorHandler: s.watchErrorHandler,
+	}
+
+	func() {
+		s.startedLock.Lock()
+		defer s.startedLock.Unlock()
+		// 实例化 controller 组件
+		s.controller = New(cfg)
+		s.controller.(*controller).clock = s.clock
+		s.started = true
+	}()
+
+  // 启动 processor 组件
+	// Separate stop channel because Processor should be stopped strictly after controller
+	processorStopCh := make(chan struct{})
+	var wg wait.Group
+	defer wg.Wait()              // Wait for Processor to stop
+	defer close(processorStopCh) // Tell Processor to stop
+	wg.StartWithChannel(processorStopCh, s.cacheMutationDetector.Run)
+	wg.StartWithChannel(processorStopCh, s.processor.run)
+
+	defer func() {
+		s.startedLock.Lock()
+		defer s.startedLock.Unlock()
+		s.stopped = true // Don't want any new listeners
+	}()
+	s.controller.Run(stopCh)
+}
+</code></pre>
+<h4 id="reflector">Reflector</h4>
+<p>controller 组件的主要功能就是通过 reflector 完成。</p>
+<p>Reflector 用于监控指定资源，当监控的资源发生变化时，触发相应的变更事件，例如 Added、Updated、Deleted，并将其资源对象存放到 DeltaFIFO 中。</p>
+<pre><code class="language-go">func (c *controller) Run(stopCh &lt;-chan struct{}) {
+	defer utilruntime.HandleCrash()
+	go func() {
+		&lt;-stopCh
+		c.config.Queue.Close()
+	}()
+  // NewReflector 实例化过程中需要传入 ListerWatcher
+  // 这是对应资源对象在实例化 NewSharedIndexInformer 时传入的，实现了对应资源的 List and Watch 接口
+  // Queue 是上面实例化的 DealtaFIFO
+	r := NewReflector(
+		c.config.ListerWatcher,
+		c.config.ObjectType,
+		c.config.Queue,
+		c.config.FullResyncPeriod,
+	)
+	r.ShouldResync = c.config.ShouldResync
+	r.WatchListPageSize = c.config.WatchListPageSize
+	r.clock = c.clock
+	if c.config.WatchErrorHandler != nil {
+		r.watchErrorHandler = c.config.WatchErrorHandler
+	}
+
+	c.reflectorMutex.Lock()
+	c.reflector = r
+	c.reflectorMutex.Unlock()
+
+	var wg wait.Group
+  // 启动 reflector
+	wg.StartWithChannel(stopCh, r.Run)
+  // 启动 processor loop
+	wait.Until(c.processLoop, time.Second, stopCh)
+	wg.Wait()
+}
+</code></pre>
+<p><strong>Reflector run</strong></p>
+<pre><code class="language-go">func (r *Reflector) Run(stopCh &lt;-chan struct{}) {
+	klog.V(2).Infof(&quot;Starting reflector %s (%s) from %s&quot;, r.expectedTypeName, r.resyncPeriod, r.name)
+	wait.BackoffUntil(func() {
+		if err := r.ListAndWatch(stopCh); err != nil {
+			r.watchErrorHandler(r, err)
+		}
+	}, r.backoffManager, true, stopCh)
+	klog.V(2).Infof(&quot;Stopping reflector %s (%s) from %s&quot;, r.expectedTypeName, r.resyncPeriod, r.name)
+}
+
+// ListAndWatch 函数实现可分为两部分：第一部分获取列表数据，第二部分监控资源对象
+func (r *Reflector) ListAndWatch(stopCh &lt;-chan struct{}) error {
+	klog.V(3).Infof(&quot;Listing and watching %v from %s&quot;, r.expectedTypeName, r.name)
+	var resourceVersion string
+
+	options := metav1.ListOptions{ResourceVersion: r.relistResourceVersion()}
+  // 第一部分：获取列表数据
+	if err := func() error {
+		initTrace := trace.New(&quot;Reflector ListAndWatch&quot;, trace.Field{&quot;name&quot;, r.name})
+		defer initTrace.LogIfLong(10 * time.Second)
+		var list runtime.Object
+		var paginatedResult bool
+		var err error
+		listCh := make(chan struct{}, 1)
+		panicCh := make(chan interface{}, 1)
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					panicCh &lt;- r
+				}
+			}()
+			// Attempt to gather list in chunks, if supported by listerWatcher, if not, the first
+			// list request will return the full response.
+			pager := pager.New(pager.SimplePageFunc(func(opts metav1.ListOptions) (runtime.Object, error) {
+				return r.listerWatcher.List(opts)
+			}))
+			switch {
+			case r.WatchListPageSize != 0:
+				pager.PageSize = r.WatchListPageSize
+			case r.paginatedResult:
+				// We got a paginated result initially. Assume this resource and server honor
+				// paging requests (i.e. watch cache is probably disabled) and leave the default
+				// pager size set.
+			case options.ResourceVersion != &quot;&quot; &amp;&amp; options.ResourceVersion != &quot;0&quot;:
+				// User didn't explicitly request pagination.
+				//
+				// With ResourceVersion != &quot;&quot;, we have a possibility to list from watch cache,
+				// but we do that (for ResourceVersion != &quot;0&quot;) only if Limit is unset.
+				// To avoid thundering herd on etcd (e.g. on master upgrades), we explicitly
+				// switch off pagination to force listing from watch cache (if enabled).
+				// With the existing semantic of RV (result is at least as fresh as provided RV),
+				// this is correct and doesn't lead to going back in time.
+				//
+				// We also don't turn off pagination for ResourceVersion=&quot;0&quot;, since watch cache
+				// is ignoring Limit in that case anyway, and if watch cache is not enabled
+				// we don't introduce regression.
+				pager.PageSize = 0
+			}
+			// 获取 list 数据，获取资源数据是由 options.ResourcesVersion 参数控制的
+      // 如果 ResourceVersion 为 0，则表示获取所有资源数据；如果 ResourceVersion 非0，则表示根据资源版本号继续获取
+      // 功能类似于断点续传，当传输过程中遇到网络故障导致中断，下次再连接时，会根据资源版本号继续传输未完成的部分
+			list, paginatedResult, err = pager.List(context.Background(), options)
+			if isExpiredError(err) || isTooLargeResourceVersionError(err) {
+				r.setIsLastSyncResourceVersionUnavailable(true)
+				// Retry immediately if the resource version used to list is unavailable.
+				// The pager already falls back to full list if paginated list calls fail due to an &quot;Expired&quot; error on
+				// continuation pages, but the pager might not be enabled, the full list might fail because the
+				// resource version it is listing at is expired or the cache may not yet be synced to the provided
+				// resource version. So we need to fallback to resourceVersion=&quot;&quot; in all to recover and ensure
+				// the reflector makes forward progress.
+				list, paginatedResult, err = pager.List(context.Background(), metav1.ListOptions{ResourceVersion: r.relistResourceVersion()})
+			}
+			close(listCh)
+		}()
+		select {
+		case &lt;-stopCh:
+			return nil
+		case r := &lt;-panicCh:
+			panic(r)
+		case &lt;-listCh:
+		}
+		if err != nil {
+			return fmt.Errorf(&quot;failed to list %v: %v&quot;, r.expectedTypeName, err)
+		}
+
+		// We check if the list was paginated and if so set the paginatedResult based on that.
+		// However, we want to do that only for the initial list (which is the only case
+		// when we set ResourceVersion=&quot;0&quot;). The reasoning behind it is that later, in some
+		// situations we may force listing directly from etcd (by setting ResourceVersion=&quot;&quot;)
+		// which will return paginated result, even if watch cache is enabled. However, in
+		// that case, we still want to prefer sending requests to watch cache if possible.
+		//
+		// Paginated result returned for request with ResourceVersion=&quot;0&quot; mean that watch
+		// cache is disabled and there are a lot of objects of a given type. In such case,
+		// there is no need to prefer listing from watch cache.
+		if options.ResourceVersion == &quot;0&quot; &amp;&amp; paginatedResult {
+			r.paginatedResult = true
+		}
+
+		r.setIsLastSyncResourceVersionUnavailable(false) // list was successful
+		initTrace.Step(&quot;Objects listed&quot;)
+		listMetaInterface, err := meta.ListAccessor(list)
+		if err != nil {
+			return fmt.Errorf(&quot;unable to understand list result %#v: %v&quot;, list, err)
+		}
+    // 获取 ResourceVersion，ResourceVersion 非常重要，Kubernetes 中所有的资源都拥有该字段
+    // 它标识当前资源对象的版本号。每次修改资源对象时，apiserver 都会更改 ResourceVersion
+    // 使得 client-go  执行 watch 时可以根据 ResourceVersion 来确定当前对象资源是否发生变化
+		resourceVersion = listMetaInterface.GetResourceVersion()
+		initTrace.Step(&quot;Resource version extracted&quot;)
+    // 将获取到的资源对象转为列表
+		items, err := meta.ExtractList(list)
+		if err != nil {
+			return fmt.Errorf(&quot;unable to understand list result %#v (%v)&quot;, list, err)
+		}
+		initTrace.Step(&quot;Objects extracted&quot;)
+    // 将资源对象存储至 DeltaFIFO，并会替换已存在的对象
+    // 实现是调用传入的 DeltaFIFO 的 Replace 方法
+		if err := r.syncWith(items, resourceVersion); err != nil {
+			return fmt.Errorf(&quot;unable to sync list result: %v&quot;, err)
+		}
+		initTrace.Step(&quot;SyncWith done&quot;)
+		r.setLastSyncResourceVersion(resourceVersion)
+		initTrace.Step(&quot;Resource version updated&quot;)
+		return nil
+	}(); err != nil {
+		return err
+	}
+
+  // 额外部分，resync 机制，如果实例化 ShareIndexInformer 时指定了 resyncPeriod
+  // 此处就会启动一个 gorutine 来定期强制同步资源，也会同步给 DeltaFIFO
+	resyncerrc := make(chan error, 1)
+	cancelCh := make(chan struct{})
+	defer close(cancelCh)
+	go func() {
+		resyncCh, cleanup := r.resyncChan()
+		defer func() {
+			cleanup() // Call the last one written into cleanup
+		}()
+		for {
+			select {
+			case &lt;-resyncCh:
+			case &lt;-stopCh:
+				return
+			case &lt;-cancelCh:
+				return
+			}
+			if r.ShouldResync == nil || r.ShouldResync() {
+				klog.V(4).Infof(&quot;%s: forcing resync&quot;, r.name)
+				if err := r.store.Resync(); err != nil {
+					resyncerrc &lt;- err
+					return
+				}
+			}
+			cleanup()
+			resyncCh, cleanup = r.resyncChan()
+		}
+	}()
+
+  // 第二部分：监控资源对象
+	for {
+		// give the stopCh a chance to stop the loop, even in case of continue statements further down on errors
+		select {
+		case &lt;-stopCh:
+			return nil
+		default:
+		}
+
+		timeoutSeconds := int64(minWatchTimeout.Seconds() * (rand.Float64() + 1.0))
+		options = metav1.ListOptions{
+			ResourceVersion: resourceVersion,
+      // typo issue: wachers =&gt; watchers
+			// We want to avoid situations of hanging watchers. Stop any wachers that do not
+			// receive any events within the timeout window.
+			TimeoutSeconds: &amp;timeoutSeconds,
+			// To reduce load on kube-apiserver on watch restarts, you may enable watch bookmarks.
+			// Reflector doesn't assume bookmarks are returned at all (if the server do not support
+			// watch bookmarks, it will ignore this field).
+			AllowWatchBookmarks: true,
+		}
+
+		// start the clock before sending the request, since some proxies won't flush headers until after the first watch event is sent
+		start := r.clock.Now()
+    // Watch 实际上调用了对应资源 Client 的 Watch 函数，通过 HTTP 协议与 kube-apiserver 建立长连接
+    // Watch 的实现机制是使用 HTTP 的分块传输协议（Chunked Transfer Encoding）
+    // Client watch 方法会返回 watcher 的接口实现，交给下文，通过通道读取数据
+    // 此处如果是 apiserver 未响应的错误，则会重试
+		w, err := r.listerWatcher.Watch(options)
+		if err != nil {
+			// If this is &quot;connection refused&quot; error, it means that most likely apiserver is not responsive.
+			// It doesn't make sense to re-list all objects because most likely we will be able to restart
+			// watch where we ended.
+			// If that's the case begin exponentially backing off and resend watch request.
+			if utilnet.IsConnectionRefused(err) {
+				&lt;-r.initConnBackoffManager.Backoff().C()
+				continue
+			}
+			return err
+		}
+    // watchHandler 负责处理资源的变更事件。当触发 Added、Updated、Deleted 事件时，将对应的资源对象
+    // 更新到本地缓存 DeltaFIFO 中并更新 ResourceVersion 资源版本号
+		if err := r.watchHandler(start, w, &amp;resourceVersion, resyncerrc, stopCh); err != nil {
+			if err != errorStopRequested {
+				switch {
+				case isExpiredError(err):
+					// Don't set LastSyncResourceVersionUnavailable - LIST call with ResourceVersion=RV already
+					// has a semantic that it returns data at least as fresh as provided RV.
+					// So first try to LIST with setting RV to resource version of last observed object.
+					klog.V(4).Infof(&quot;%s: watch of %v closed with: %v&quot;, r.name, r.expectedTypeName, err)
+				default:
+					klog.Warningf(&quot;%s: watch of %v ended with: %v&quot;, r.name, r.expectedTypeName, err)
+				}
+			}
+			return nil
+		}
+	}
+}
+
+// 通过 watcher.ResultChan 得到分段传输的数据，根据资源对象类型 DeltaFIFO 执行相应动作。
+func (r *Reflector) watchHandler(start time.Time, w watch.Interface, resourceVersion *string, errc chan error, stopCh &lt;-chan struct{}) error {
+	eventCount := 0
+
+	// Stopping the watcher should be idempotent and if we return from this function there's no way
+	// we're coming back in with the same watch interface.
+	defer w.Stop()
+
+loop:
+	for {
+		select {
+		case &lt;-stopCh:
+			return errorStopRequested
+		case err := &lt;-errc:
+			return err
+		case event, ok := &lt;-w.ResultChan():
+			if !ok {
+				break loop
+			}
+      ......
+			newResourceVersion := meta.GetResourceVersion()
+			switch event.Type {
+			case watch.Added:
+        // DeltaFIFO::Add
+				err := r.store.Add(event.Object)
+				if err != nil {
+					utilruntime.HandleError(fmt.Errorf(&quot;%s: unable to add watch event object (%#v) to store: %v&quot;, r.name, event.Object, err))
+				}
+			case watch.Modified:
+        // DeltaFIFO::Update
+				err := r.store.Update(event.Object)
+				if err != nil {
+					utilruntime.HandleError(fmt.Errorf(&quot;%s: unable to update watch event object (%#v) to store: %v&quot;, r.name, event.Object, err))
+				}
+			case watch.Deleted:
+				// TODO: Will any consumers need access to the &quot;last known
+				// state&quot;, which is passed in event.Object? If so, may need
+				// to change this.
+        // 
+        // DeltaFIFO::Delete
+				err := r.store.Delete(event.Object)
+				if err != nil {
+					utilruntime.HandleError(fmt.Errorf(&quot;%s: unable to delete watch event object (%#v) from store: %v&quot;, r.name, event.Object, err))
+				}
+			case watch.Bookmark:
+				// A `Bookmark` means watch has synced here, just update the resourceVersion
+			default:
+				utilruntime.HandleError(fmt.Errorf(&quot;%s: unable to understand watch event %#v&quot;, r.name, event))
+			}
+      ......
+		}
+	}
+  ......
+	return nil
+}
+</code></pre>
+<h4 id="deltafifo">DeltaFIFO</h4>
+<p>接下来看看 DeltaFIFO 的详细操作都有哪些，上面源码中的 Resync、Add、Update 等操作都做了什么。</p>
+<p>现在将代码回到 sharedIndexInformer::Run 方法中:</p>
+<pre><code class="language-go">func (s *sharedIndexInformer) Run(stopCh &lt;-chan struct{}) {
+	......
+	fifo := NewDeltaFIFOWithOptions(DeltaFIFOOptions{
+    // Indexer 是由对应资源 Informer 实例化 SharedIndexInformer 时传入，这个下面会详细再看
+		KnownObjects:          s.indexer,
+		EmitDeltaTypeReplaced: true,
+	})
+  ......
+}
+
+// DeltaFIFO 是一个生产者-消费者队列，其中 Reflector 是生产者，消费者是调用 Pop 方法的任何人
+// 通过 DeltaFIFO 可以一次处理一个资源对象的所有操作，这主要取决与 DeltaFIFO 的存储结构
+// 它通过 queue 字段存储资源对象的 key，该 key 通过 KeyOf 函数计算得到。items 字段使用 map 数据结构
+// 的方式存储，key 与 queue 对应，value 存储的是对象的 Deltas 数组
+type DeltaFIFO struct {
+  ......
+	items map[string]Deltas
+	queue []string
+  ......
+}
+
+// Add、Update、Delete 都是生产者方法，产生的都是增量更新，都会调用 queueActionLocked 方法
+// 只是传入的 DeltaType 不同
+func (f *DeltaFIFO) Add(obj interface{}) error {
+	f.lock.Lock()
+	defer f.lock.Unlock()
+	f.populated = true
+	return f.queueActionLocked(Added, obj)
+}
+
+func (f *DeltaFIFO) queueActionLocked(actionType DeltaType, obj interface{}) error {
+  // 取得 key
+	id, err := f.KeyOf(obj)
+	if err != nil {
+		return KeyError{obj, err}
+	}
+	oldDeltas := f.items[id]
+	newDeltas := append(oldDeltas, Delta{actionType, obj})
+  // 不只 watch，resync 机制也会改变 items 中的值，所以新的事件进来要进行去重
+	newDeltas = dedupDeltas(newDeltas)
+
+	if len(newDeltas) &gt; 0 {
+    // 更新 queue 字段
+		if _, exists := f.items[id]; !exists {
+			f.queue = append(f.queue, id)
+		}
+    // 更新 items
+		f.items[id] = newDeltas
+    // 唤醒被阻塞的 goroutine
+		f.cond.Broadcast()
+	} else {
+		// This never happens, because dedupDeltas never returns an empty list
+		// when given a non-empty list (as it is here).
+		// If somehow it happens anyway, deal with it but complain.
+		if oldDeltas == nil {
+			klog.Errorf(&quot;Impossible dedupDeltas for id=%q: oldDeltas=%#+v, obj=%#+v; ignoring&quot;, id, oldDeltas, obj)
+			return nil
+		}
+		klog.Errorf(&quot;Impossible dedupDeltas for id=%q: oldDeltas=%#+v, obj=%#+v; breaking invariant by storing empty Deltas&quot;, id, oldDeltas, obj)
+		f.items[id] = newDeltas
+		return fmt.Errorf(&quot;Impossible dedupDeltas for id=%q: oldDeltas=%#+v, obj=%#+v; broke DeltaFIFO invariant by storing empty Deltas&quot;, id, oldDeltas, obj)
+	}
+	return nil
+}
+
+// 消费者方法
+func (f *DeltaFIFO) Pop(process PopProcessFunc) (interface{}, error) {
+	f.lock.Lock()
+	defer f.lock.Unlock()
+	for {
+    // 如果队列为空则阻塞
+		for len(f.queue) == 0 {
+			// When the queue is empty, invocation of Pop() is blocked until new item is enqueued.
+			// When Close() is called, the f.closed is set and the condition is broadcasted.
+			// Which causes this loop to continue and return from the Pop().
+			if f.closed {
+				return nil, ErrFIFOClosed
+			}
+			// 阻塞，可被 f.cond.Broadcast 唤醒
+			f.cond.Wait()
+		}
+    // 取出头部资源对象 key
+		id := f.queue[0]
+    // 已加锁，可以直接更新队列
+		f.queue = f.queue[1:]
+		if f.initialPopulationCount &gt; 0 {
+			f.initialPopulationCount--
+		}
+    // 根据 key 取出 deltas
+		item, ok := f.items[id]
+		if !ok {
+			// This should never happen
+			klog.Errorf(&quot;Inconceivable! %q was in f.queue but not f.items; ignoring.&quot;, id)
+			continue
+		}
+		delete(f.items, id)
+    // process 是传入的回调方法，由上层消费者（controller）传入
+    // 这正是第三个组件，sharedProcessor，DeltaFIFO 会以此通知 listeners
+		err := process(item)
+    // 如果回调函数出错，就将资源重新存入队列
+		if e, ok := err.(ErrRequeue); ok {
+			f.addIfNotPresent(id, item)
+			err = e.Err
+		}
+		// Don't need to copyDeltas here, because we're transferring
+		// ownership to the caller.
+		return item, err
+	}
+}
+</code></pre>
+<p><strong>DeltaFIFO Resync</strong></p>
+<p>Resync 与 kubebuilder  的 retry 是一样的功能吗？</p>
+<p>Deleted object 如何给出完整资源呢？</p>
+<p>上文在 <code>Reflector::ListAndWatch</code> 中可以看到启动了一个 goroutine 用于定时同步，调用的就是 <code>DeltaFIFO::Resync</code> 方法</p>
+<p>Resync 的作用是将 indexer 中的资源对象同步至 DeltaFIFO 中，以便于让处理失败的事件再次处理</p>
+<pre><code class="language-go">// Resync 实际上是添加了一个 Sync 类型的 delta
+func (f *DeltaFIFO) Resync() error {
+	f.lock.Lock()
+	defer f.lock.Unlock()
+
+  // knownObject 接口用于列出所有已知资源对象，实际传入的就是 indexer
+  // 在 sharedIndexInformer::Run 方法中实例化 DeltaFIFO 时传入
+	if f.knownObjects == nil {
+		return nil
+	}
+
+	keys := f.knownObjects.ListKeys()
+	for _, k := range keys {
+		if err := f.syncKeyLocked(k); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Resync 的作用是将 indexer 中的资源对象同步至 DeltaFIFO 中，并将同步过去的资源对象设为 Sync 类型
+func (f *DeltaFIFO) syncKeyLocked(key string) error {
+	obj, exists, err := f.knownObjects.GetByKey(key)
+  ......
+
+	// If we are doing Resync() and there is already an event queued for that object,
+	// we ignore the Resync for it. This is to avoid the race, in which the resync
+	// comes with the previous value of object (since queueing an event for the object
+	// doesn't trigger changing the underlying store &lt;knownObjects&gt;.
+	id, err := f.KeyOf(obj)
+	if err != nil {
+		return KeyError{obj, err}
+	}
+	if len(f.items[id]) &gt; 0 {
+		return nil
+	}
+
+	if err := f.queueActionLocked(Sync, obj); err != nil {
+		return fmt.Errorf(&quot;couldn't queue object: %v&quot;, err)
+	}
+	return nil
+}
+</code></pre>
+<p><strong>Replace</strong></p>
+<p>在 <code>sharedIndexInformer::ListAndWatch</code> 中，List 部分会在通过 <code>DeltaFIFO::Replace</code> 方法替换 DeltaFIFO 中的资源，此方法用于首次 List 的数据处理或连接中断后的数据同步</p>
+<pre><code class="language-go">func (f *DeltaFIFO) Replace(list []interface{}, resourceVersion string) error {
+  ......
+	for _, item := range list {
+		key, err := f.KeyOf(item)
+		if err != nil {
+			return KeyError{item, err}
+		}
+		keys.Insert(key)
+		if err := f.queueActionLocked(action, item); err != nil {
+			return fmt.Errorf(&quot;couldn't enqueue object: %v&quot;, err)
+		}
+	}
+	......
+	// Detect deletions not already in the queue.
+	knownKeys := f.knownObjects.ListKeys()
+	queuedDeletions := 0
+	for _, k := range knownKeys {
+		if keys.Has(k) {
+			continue
+		}
+    ......
+    // 根据 Indexer 检测已删除的资源
+		if err := f.queueActionLocked(Deleted, DeletedFinalStateUnknown{k, deletedObj}); err != nil {
+			return err
+		}
+	}
+  ......
+}
+</code></pre>
+<h4 id="indexer">Indexer</h4>
+<p>Indexer 上面也介绍了，是负责 local cache 的组件，它用来存储资源对象并自带索引功能。Indexer 中的数据会与 Etcd 集群中的数据保持一致，这主要通过 Reflector 实现。</p>
+<p>在实例化 <code>sharedIndexInformer</code> 时需要在参数中传入参数，跟着一起实例化，下面是 deployment Informer 的代码：</p>
+<pre><code class="language-go">func (f *deploymentInformer) defaultInformer(client kubernetes.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
+	return NewFilteredDeploymentInformer(client, f.namespace, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
+}
+
+func NewSharedIndexInformer(lw ListerWatcher, exampleObject runtime.Object, defaultEventHandlerResyncPeriod time.Duration, indexers Indexers) SharedIndexInformer {
+	realClock := &amp;clock.RealClock{}
+	sharedIndexInformer := &amp;sharedIndexInformer{
+    ......
+		indexer:                         NewIndexer(DeletionHandlingMetaNamespaceKeyFunc, indexers),
+    ......
+	}
+	return sharedIndexInformer
+}
+
+func NewIndexer(keyFunc KeyFunc, indexers Indexers) Indexer {
+  // cache 使用 cacheStorage 进行存储，自身在其基础上封装了用于索引的方法，便于使用
+	return &amp;cache{
+    // cacheStorage 使用的 ThreadSafeMap 是线程安全的存储
+		cacheStorage: NewThreadSafeStore(indexers, Indices{}),
+    // 用于获取 key 的闭包
+		keyFunc:      keyFunc,
+	}
+}
+
+func NewThreadSafeStore(indexers Indexers, indices Indices) ThreadSafeStore {
+	return &amp;threadSafeMap{
+    // 存储
+		items:    map[string]interface{}{},
+    // 索引器，map 类型，key 是索引器的名称，value 是对应索引器函数，由对应资源的 informer 传入
+    // 索引器函数被定义为接收一个资源对象，返回检索结果列表
+		indexers: indexers,
+    // 索引存储器，map 类型，将名称与 index 对应
+    // index 被定义为存储的缓存数据，通过 set 结构存储，go 语言没有 set 结构，所以是通过 map 实现 set 的去重
+		indices:  indices,
+	}
+}
+
+func (c *threadSafeMap) Add(key string, obj interface{}) {
+  // 通过锁保证数据一致性
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	oldObject := c.items[key]
+	c.items[key] = obj
+  // 更新索引
+	c.updateIndices(oldObject, obj, key)
+}
+</code></pre>
+<p>想要理解 indexer 还是需要通过 example：</p>
+<figure data-type="image" tabindex="2"><img src="https://tva1.sinaimg.cn/large/0081Kckwly1glqkusf9nvj30su10odib.jpg" alt="exalpme" loading="lazy"></figure>
+<h4 id="processor">Processor</h4>
+<p>最后一个组件 sharedProcessor，processor 作为回调函数在 DeltaFIFO 的中被调用，现在将代码回到 <code>Controller::Run</code> 中：</p>
+<pre><code class="language-go">func (c *controller) Run(stopCh &lt;-chan struct{}) {
+  ......
+	var wg wait.Group
+  // 上面讲了 Reflector:Run:
+	wg.StartWithChannel(stopCh, r.Run)
+  // 消费 DeltaFIFO 数据
+	wait.Until(c.processLoop, time.Second, stopCh)
+	wg.Wait()
+}
+
+func (c *controller) processLoop() {
+	for {
+    // 传入确保类型正确的回调函数，c.config.Process 由 sharedIndexInformer 传入
+		obj, err := c.config.Queue.Pop(PopProcessFunc(c.config.Process))
+		if err != nil {
+			if err == ErrFIFOClosed {
+				return
+			}
+      // DeltaFIFO::Pop 只会对 ErrRequeue 类型错误进行重试，此处会处理所有类型错误
+			if c.config.RetryOnError {
+				// 这是个安全的方法，如果队列中已存在，则不会重复添加
+				c.config.Queue.AddIfNotPresent(obj)
+			}
+		}
+	}
+}
+
+// 寻找 config.Process
+func (s *sharedIndexInformer) Run(stopCh &lt;-chan struct{}) {
+  ......
+	cfg := &amp;Config{
+		Queue:            fifo,
+		ListerWatcher:    s.listerWatcher,
+		ObjectType:       s.objectType,
+		FullResyncPeriod: s.resyncCheckPeriod,
+		RetryOnError:     false,
+		ShouldResync:     s.processor.shouldResync,
+    // here
+		Process:           s.HandleDeltas,
+		WatchErrorHandler: s.watchErrorHandler,
+	}
+  ......
+}
+
+// Informer DeltaFIFO 回调函数
+func (s *sharedIndexInformer) HandleDeltas(obj interface{}) error {
+	s.blockDeltas.Lock()
+	defer s.blockDeltas.Unlock()
+
+	// from oldest to newest
+	for _, d := range obj.(Deltas) {
+		switch d.Type {
+    // 更新 local cache
+		case Sync, Replaced, Added, Updated:
+			s.cacheMutationDetector.AddObject(d.Object)
+			if old, exists, err := s.indexer.Get(d.Object); err == nil &amp;&amp; exists {
+				if err := s.indexer.Update(d.Object); err != nil {
+					return err
+				}
+
+				isSync := false
+				switch {
+				case d.Type == Sync:
+					// Sync events are only propagated to listeners that requested resync
+					isSync = true
+				case d.Type == Replaced:
+					if accessor, err := meta.Accessor(d.Object); err == nil {
+						if oldAccessor, err := meta.Accessor(old); err == nil {
+							// Replaced events that didn't change resourceVersion are treated as resync events
+							// and only propagated to listeners that requested resync
+							isSync = accessor.GetResourceVersion() == oldAccessor.GetResourceVersion()
+						}
+					}
+				}
+        // 发送给 sharedProcessor 组件
+				s.processor.distribute(updateNotification{oldObj: old, newObj: d.Object}, isSync)
+			} else {
+				if err := s.indexer.Add(d.Object); err != nil {
+					return err
+				}
+				s.processor.distribute(addNotification{newObj: d.Object}, false)
+			}
+    // 从 local cache 中删除对象资源
+		case Deleted:
+			if err := s.indexer.Delete(d.Object); err != nil {
+				return err
+			}
+			s.processor.distribute(deleteNotification{oldObj: d.Object}, false)
+		}
+	}
+	return nil
+}
+</code></pre>
+<p><strong>sharedProcessor</strong></p>
+<pre><code class="language-go">// sharedProcessor 在实例化 SharedIndexInformer 时一起实例化
+func NewSharedIndexInformer(lw ListerWatcher, exampleObject runtime.Object, defaultEventHandlerResyncPeriod time.Duration, indexers Indexers) SharedIndexInformer {
+	realClock := &amp;clock.RealClock{}
+	sharedIndexInformer := &amp;sharedIndexInformer{
+		processor:                       &amp;sharedProcessor{clock: realClock},
+		indexer:                         NewIndexer(DeletionHandlingMetaNamespaceKeyFunc, indexers),
+		listerWatcher:                   lw,
+		objectType:                      exampleObject,
+		resyncCheckPeriod:               defaultEventHandlerResyncPeriod,
+		defaultEventHandlerResyncPeriod: defaultEventHandlerResyncPeriod,
+		cacheMutationDetector:           NewCacheMutationDetector(fmt.Sprintf(&quot;%T&quot;, exampleObject)),
+		clock:                           realClock,
+	}
+	return sharedIndexInformer
+}
+
+// 在调用 SharedIndexInformer::AddEventHandler 的方法时，会为 sharedProcessor 添加 listener
+func NewController(
+	kubeclientset kubernetes.Interface,
+	sampleclientset clientset.Interface,
+	deploymentInformer appsinformers.DeploymentInformer,
+	fooInformer informers.FooInformer) *Controller {
+  ......
+  deploymentInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+    AddFunc: controller.handleObject,
+    UpdateFunc: func(old, new interface{}) {
+      newDepl := new.(*appsv1.Deployment)
+      oldDepl := old.(*appsv1.Deployment)
+      if newDepl.ResourceVersion == oldDepl.ResourceVersion {
+        // Periodic resync will send update events for all known Deployments.
+        // Two different versions of the same Deployment will always have different RVs.
+        return
+      }
+      controller.handleObject(new)
+    },
+    DeleteFunc: controller.handleObject,
+  })
+  ......
+}
+
+func (s *sharedIndexInformer) AddEventHandler(handler ResourceEventHandler) {
+	s.AddEventHandlerWithResyncPeriod(handler, s.defaultEventHandlerResyncPeriod)
+}
+
+// 为 processor 添加 listener
+func (s *sharedIndexInformer) AddEventHandlerWithResyncPeriod(handler ResourceEventHandler, resyncPeriod time.Duration) {
+	......
+	listener := newProcessListener(handler, resyncPeriod, determineResyncPeriod(resyncPeriod, s.resyncCheckPeriod), s.clock.Now(), initialBufferSize)
+	.......
+	s.processor.addListener(listener)
+	for _, item := range s.indexer.List() {
+		listener.add(addNotification{newObj: item})
+	}
+}
+
+// listener 添加后会直接启动
+func (p *sharedProcessor) addListener(listener *processorListener) {
+	p.listenersLock.Lock()
+	defer p.listenersLock.Unlock()
+
+	p.addListenerLocked(listener)
+	if p.listenersStarted {
+		p.wg.Start(listener.run)
+		p.wg.Start(listener.pop)
+	}
+}
+
+// processorListener::run 方法会等待 pop 通知，并根据通知的类型，调用相应回调函数
+func (p *processorListener) run() {
+	stopCh := make(chan struct{})
+	wait.Until(func() {
+		for next := range p.nextCh {
+			switch notification := next.(type) {
+			case updateNotification:
+				p.handler.OnUpdate(notification.oldObj, notification.newObj)
+			case addNotification:
+				p.handler.OnAdd(notification.newObj)
+			case deleteNotification:
+				p.handler.OnDelete(notification.oldObj)
+			default:
+				utilruntime.HandleError(fmt.Errorf(&quot;unrecognized notification: %T&quot;, next))
+			}
+		}
+		// the only way to get here is if the p.nextCh is empty and closed
+		close(stopCh)
+	}, 1*time.Second, stopCh)
+}
+
+// processorListener::pop 会接收通知，并发送给 run 等待的 channel 中
+func (p *processorListener) pop() {
+	defer utilruntime.HandleCrash()
+	defer close(p.nextCh) // Tell .run() to stop
+
+	var nextCh chan&lt;- interface{}
+	var notification interface{}
+	for {
+		select {
+		case nextCh &lt;- notification:
+			// Notification dispatched
+			var ok bool
+			notification, ok = p.pendingNotifications.ReadOne()
+			if !ok { // Nothing to pop
+				nextCh = nil // Disable this select case
+			}
+		case notificationToAdd, ok := &lt;-p.addCh:
+			if !ok {
+				return
+			}
+			if notification == nil { // No notification to pop (and pendingNotifications is empty)
+				// Optimize the case - skip adding to pendingNotifications
+				notification = notificationToAdd
+				nextCh = p.nextCh
+			} else { // There is already a notification waiting to be dispatched
+				p.pendingNotifications.WriteOne(notificationToAdd)
+			}
+		}
+	}
+}
+</code></pre>
+<h2 id="workqueue">WorkQueue</h2>
+<p>WorkQueue 称为工作队列，Kubernetes 的 WorkQueue 队列与普通的 FIFO 队列相比，实现略显复杂，它的主要功能在于标记和去重，并支持如下特性：</p>
+<ul>
+<li><strong>有序</strong>：按照添加顺序处理元素</li>
+<li><strong>去重</strong>：相同元素在同一时间不会被重复处理，例如一个元素在处理之前被添加了多次，它只会被处理一次</li>
+<li><strong>并发性</strong>：多生产者和多消费者</li>
+<li><strong>标记机制</strong>：支持标记功能，标记一个元素是否被处理，也允许元素在处理时重新排队</li>
+<li><strong>通知机制</strong>：ShutDown 方法通过信号量通知队列不再接收新的元素，并通知 metric goroutine 退出</li>
+<li><strong>延迟</strong>：支持延迟队列，延迟一段时间后再将元素存入队列</li>
+<li><strong>限速</strong>：支持限速队列，元素存入队列时进行速率限制，限制一个元素被重新排队的次数</li>
+<li><strong>Metric</strong>：支持 metric 监控指标</li>
+<li><strong>Interface</strong>：FIFO 队列接口，先进先出，并支持去重机制</li>
+<li><strong>DelayingInterface</strong>：延迟队列接口，基于 Interface 接口封装，延迟一段时间后再将元素存入队列</li>
+<li><strong>RateLimitingInterface</strong>：限速队列接口，基于 DelayingInterface 接口封装，支持元素存入队列时进行速率限制</li>
+</ul>
+<h3 id="源码-2">源码</h3>
+<p>SampleController 在实例化 Controller 时实例化了 <code>NamedRateLimitingQueue</code>，也就是命名的限速队列。</p>
+<pre><code class="language-go">func NewController(
+	kubeclientset kubernetes.Interface,
+	sampleclientset clientset.Interface,
+	deploymentInformer appsinformers.DeploymentInformer,
+	fooInformer informers.FooInformer) *Controller {
+  ......
+	controller := &amp;Controller{
+    ......
+    // DefaultControllerRateLimiter 是默认的、基于令牌桶机制的速率限制器
+		workqueue:         workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), &quot;Foos&quot;),
+    ......
+	}
+  fooInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+    // 在回调函数中将 delta 加入 workQueue
+		AddFunc: controller.enqueueFoo,
+		UpdateFunc: func(old, new interface{}) {
+			controller.enqueueFoo(new)
+		},
+	})
+  ......
+}
+
+func NewNamedRateLimitingQueue(rateLimiter RateLimiter, name string) RateLimitingInterface {
+	return &amp;rateLimitingType{
+    // 同时实例化延迟队列
+		DelayingInterface: NewNamedDelayingQueue(name),
+		rateLimiter:       rateLimiter,
+	}
+}
+
+func NewNamedDelayingQueue(name string) DelayingInterface {
+	return NewDelayingQueueWithCustomClock(clock.RealClock{}, name)
+}
+
+func NewDelayingQueueWithCustomClock(clock clock.Clock, name string) DelayingInterface {
+  // NewNamed 会实例化一个基础的 FIFOWorkQueue
+	return newDelayingQueue(clock, NewNamed(name), name)
+}
+
+func newDelayingQueue(clock clock.Clock, q Interface, name string) *delayingType {
+	ret := &amp;delayingType{
+    // 基础队列
+		Interface:       q,
+		clock:           clock,
+    // 心跳确保等待时间不超过 maxWait，const maxWait = 10 * time.Second
+		heartbeat:       clock.NewTicker(maxWait),
+		stopCh:          make(chan struct{}),
+		waitingForAddCh: make(chan *waitFor, 1000),
+		metrics:         newRetryMetrics(name),
+	}
+  // 处理延迟元素
+	go ret.waitingLoop()
+	return ret
+}
+
+// 以上是实例化的过程，下面看添加
+func (c *Controller) enqueueFoo(obj interface{}) {
+	var key string
+	var err error
+  // obj 为传入的资源，在此处转为 key 存入 WorkQueue
+  // 为什么转为 key，而不是将 object 整个存入 workQueue？
+  // 暂时的思考： object 不利于去重，而且数据过大，还有如果存入 object
+  // Reconciler 还是需要 Get 来判断资源是否已删除
+	if key, err = cache.MetaNamespaceKeyFunc(obj); err != nil {
+		utilruntime.HandleError(err)
+		return
+	}
+  // RateLimiting 和 Delaying 都是基于基础的 workQueue 封装
+  // 所以此处调用的是 Interface::Add()
+	c.workqueue.Add(key)
+}
+
+// 现在回来看看 NewNamed 实例化的是什么
+func NewNamed(name string) *Type {
+	rc := clock.RealClock{}
+	return newQueue(
+		rc,
+		globalMetricsFactory.newQueueMetrics(name, rc),
+		defaultUnfinishedWorkUpdatePeriod,
+	)
+}
+func newQueue(c clock.Clock, metrics queueMetrics, updatePeriod time.Duration) *Type {
+	t := &amp;Type{
+		clock:                      c,
+		dirty:                      set{},
+		processing:                 set{},
+		cond:                       sync.NewCond(&amp;sync.Mutex{}),
+		metrics:                    metrics,
+		unfinishedWorkUpdatePeriod: updatePeriod,
+	}
+	go t.updateUnfinishedWorkLoop()
+	return t
+}
+
+func (q *Type) Add(item interface{}) {
+	q.cond.L.Lock()
+	defer q.cond.L.Unlock()
+	if q.shuttingDown {
+		return
+	}
+  // 去重，这里也不利于 object 整个传入
+	if q.dirty.has(item) {
+		return
+	}
+
+	q.metrics.add(item)
+
+	q.dirty.insert(item)
+  // 集中处理正在处理的元素
+	if q.processing.has(item) {
+		return
+	}
+  
+  // 将需要处理的元素加入到队列中，队列中应该只包含已处理完成的元素，不应该有 processing 的元素
+	q.queue = append(q.queue, item)
+	q.cond.Signal()
+}
+
+// 现在来看下如何消费 workQueue 中的内容
+// 在 Controller::Run() 中，会根据给定线程数启动 x 个 Controller::runWorkker()
+func (c *Controller) Run(threadiness int, stopCh &lt;-chan struct{}) error {
+	......
+	for i := 0; i &lt; threadiness; i++ {
+		go wait.Until(c.runWorker, time.Second, stopCh)
+	}
+  ......
+}
+
+// 这是一个持久运行的方法，它会不断的消费 workQueue 中的元素
+func (c *Controller) runWorker() {
+	for c.processNextWorkItem() {
+	}
+}
+
+// 这里的处理过于简单，可以看看 kubebuilder 的源码了
+func (c *Controller) processNextWorkItem() bool {
+  // 取出元素
+	obj, shutdown := c.workqueue.Get()
+  ......
+	err := func(obj interface{}) error {
+		......
+    // Controller::syncHandler 等同于 Reconciler
+		if err := c.syncHandler(key); err != nil {
+			// 处理失败则放回等待再次处理
+			c.workqueue.AddRateLimited(key)
+			return fmt.Errorf(&quot;error syncing '%s': %s, requeuing&quot;, key, err.Error())
+		}
+		// 如果处理成功则删除元素
+		c.workqueue.Forget(obj)
+    ......
+	}(obj)
+  ......
+}
+</code></pre>
+]]></content>
+    </entry>
+    <entry>
+        <title type="html"><![CDATA[我们为什么要使用 Kubernetes 自定义资源]]></title>
+        <id>https://cnbailian.github.io/post/why-do-use-kubernetes-crd/</id>
+        <link href="https://cnbailian.github.io/post/why-do-use-kubernetes-crd/">
+        </link>
+        <updated>2021-05-08T03:09:27.000Z</updated>
+        <content type="html"><![CDATA[<p>Kubernetes 提供了 CRD(CustomResourceDefinitions) 这种扩展方式满足了用户增强 Kubernetes 功能的需求，我们熟悉的 Kubernetes  Operator 也是基于这一机制而实现。</p>
+<p>本文想讨论的是我们要在什么时候使用 CRD 以及为什么要使用 CRD。</p>
+<h2 id="我是否应该向我的-kubernetes-集群添加定制资源">我是否应该向我的 Kubernetes 集群添加定制资源？</h2>
+<p>表格是 <a href="https://kubernetes.io/zh/docs/concepts/extend-kubernetes/api-extension/custom-resources/#%E6%88%91%E6%98%AF%E5%90%A6%E5%BA%94%E8%AF%A5%E5%90%91%E6%88%91%E7%9A%84-kubernetes-%E9%9B%86%E7%BE%A4%E6%B7%BB%E5%8A%A0%E5%AE%9A%E5%88%B6%E8%B5%84%E6%BA%90">Kubernetes 官网</a>列出的选择 CRD 的场景，其中最重要的，也是难以理解的应该是<strong>声明式 API</strong>这一概念。</p>
+<table>
+<thead>
+<tr>
+<th>考虑 API 聚合的情况</th>
+<th>优选独立 API 的情况</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>你的 API 是<a href="https://kubernetes.io/zh/docs/concepts/extend-kubernetes/api-extension/custom-resources/#declarative-apis">声明式的</a>。</td>
+<td>你的 API 不符合<a href="https://kubernetes.io/zh/docs/concepts/extend-kubernetes/api-extension/custom-resources/#declarative-apis">声明式</a>模型。</td>
+</tr>
+<tr>
+<td>你希望可以是使用 <code>kubectl</code> 来读写你的新资源类别。</td>
+<td>不要求 <code>kubectl</code> 支持。</td>
+</tr>
+<tr>
+<td>你希望在 Kubernetes UI （如仪表板）中和其他内置类别一起查看你的新资源类别。</td>
+<td>不需要 Kubernetes UI 支持。</td>
+</tr>
+<tr>
+<td>你在开发新的 API。</td>
+<td>你已经有一个提供 API 服务的程序并且工作良好。</td>
+</tr>
+<tr>
+<td>你有意愿取接受 Kubernetes 对 REST 资源路径所作的格式限制，例如 API 组和名字空间。（参阅 <a href="https://kubernetes.io/zh/docs/concepts/overview/kubernetes-api/">API 概述</a>）</td>
+<td>你需要使用一些特殊的 REST 路径以便与已经定义的 REST API 保持兼容。</td>
+</tr>
+<tr>
+<td>你的资源可以自然地界定为集群作用域或集群中某个名字空间作用域。</td>
+<td>集群作用域或名字空间作用域这种二分法很不合适；你需要对资源路径的细节进行控制。</td>
+</tr>
+<tr>
+<td>你希望复用 <a href="https://kubernetes.io/zh/docs/concepts/extend-kubernetes/api-extension/custom-resources/#common-features">Kubernetes API 支持特性</a>。</td>
+<td>你不需要这类特性。</td>
+</tr>
+</tbody>
+</table>
+<h2 id="声明式">声明式</h2>
+<p>声明式指的是这么一种软件设计理念和做法：<strong>让我们的动作更偏向于描述，而不是命令</strong>。</p>
+<p>声明式（Declarative）通常是与命令式（Imperative）作对比，两者的侧重点不同。命令式编程会详细的命令工具怎么（How）去处理一件事情以达到你想要的结果（What）；声明式编程则是只告诉工具想要的结果（What），由工具自行决定怎么做（How）。</p>
+<img src="https://tva1.sinaimg.cn/large/008i3skNly1gq8n3f5etmj30f008374t.jpg" alt="img"  />
+<p>以生活中打车作为例子，我们在大多数时候并不会指挥司机师傅：走哪条街，前行多少米，在哪个路口转向；而是直接告诉师傅，我要去 XXX 地点。上述例子能看出命令式与声明式在生活中的体现，在编程中，我们大多数人首先接触到的都是命令式的编程语言，这就导致我们对声明式会有一些不理解。下面就用声明式在编程领域中的两个比较重要的成果来说明声明式的意义。</p>
+<h3 id="dsl">DSL</h3>
+<p>DSL 是 Domain Specific Language 的缩写，中文翻译为<strong>领域特定语言</strong>。与 DSL 相对的是 GPPL（General Purpose Programming Language，通用目的编程语言），也就是我们非常熟悉的 Java、C、Go 等编程语言。</p>
+<p>DSL 的定义并不是很明确，我们可以简单的理解为“为了解决某一类任务而专门设计的计算机语言”。最常见的 DSL 包括 SQL、HTML 和 CSS 等。</p>
+<p>所有的 DSL 都是声明式的，你写出一条 SQL 语句，只是告诉数据库想要的结果是什么，数据库会帮我们设计获取这个结果集的执行路径，并返回结果集。众所周知，使用 SQL 语言获取数据，要比自行编写处理过程去获取数据容易的多。</p>
+<pre><code class="language-sql">SELECT * from user WHERE user_name = Ben
+</code></pre>
+<p>Go 伪代码：</p>
+<pre><code class="language-go">users := get_users()
+for row, value := range users {
+  if value.user_name = &quot;Ben&quot; {
+    print(&quot;find&quot;)
+    break
+  }
+}
+</code></pre>
+<h4 id="内部-dsl">内部 DSL</h4>
+<p>上面提到的 SQL、HTML 和 CSS 等，属于外部 DSL。外部 DSL 是自我包含的语言，他有自己特定语法、解析器和词法分析器等等。与之相对的是内部 DSL，它使用的是宿主语言的抽象能力，更像是一种别称，代表着一类特别的 API 及使用模式。</p>
+<p>比如说 LINQ（C#）、 Ruby on Rails（Ruby）、jQuery（JavaScript）。它们共同的特点是，它们其实只是一系列 API，但是你可以“假装”它们是一种 DSL。不过，这种 DSL 模糊了框架和 DSL 的边界，因为两者看起来没有什么区别，我们也没有必要争论哪些是框架，哪些是 DSL，因为这些争论并没有什么意义。</p>
+<p><em>就我个人体验而言，如果脱离框架转而使用宿主语言实现同样功能时会感觉到不适应，那么可能就证明了这个框架拥有内部 DSL 的性质。</em></p>
+<h3 id="函数式编程">函数式编程</h3>
+<p>函数式编程就是声明式的另一个重要成果，它的编程形式更倾向于描述而不是执行命令，下面这个例子是 React 的声明式构建 UI：</p>
+<pre><code class="language-javascript">// 普通的 DOM API 构建 UI
+const div = document.createElement('div')
+const p = document.createElement('p')
+p.textContent = 'hello world'
+const UI = div.append(p)
+
+// React 构建 UI
+const h = React.craeteElement
+const UI = h('div', null, h('p', null, 'hello world'))
+</code></pre>
+<p>React 依托于 JavaScript，并不是完全的函数式编程语言，不过 Haskell 等函数式语言我也没有接触，所以并不能很好的理解。分享两篇文章，希望能一起学习。</p>
+<p><a href="http://blog.zhaojie.me/2010/05/trends-and-future-directions-in-programming-languages-by-anders-3-functional-programming-and-fsharp.html">编程语言的发展趋势及未来方向（3）：函数式编程</a></p>
+<p><a href="https://lutaonan.com/blog/declarative-programming-is-the-future/">未来属于声明式编程</a></p>
+<h2 id="kubernetes-声明式-api">Kubernetes 声明式 API</h2>
+<p>通过上述的例子，我们已经明白声明式的理念。Kubernetes 的声明式 API 正是使用了这种方法，<strong>我们向其描述我们想要让一个事物达到的期望状态，由 Kubernetes 内部去自行实现，令这个事物达成实际状态</strong>。</p>
+<p>声明式 API 基于 RESTful 的设计风格，将想要描述的事物抽象为资源，通过 CRUD 风格的操作方法修改资源对象的状态。这也正是 REST 的本质：<strong>资源表述性状态转移</strong>，通俗的讲就是：资源以某种表现形式进行状态转移。在 Kubernetes 中，自定义资源的表现形式是由 CRD 来定义。</p>
+<p><em>表现形式包含表示的格式，也包含表示的属性。格式在 Kubernetes 中有着统一的定义，所以我们在 CRD 中主要配置的是表示的属性，也就是对象的配置信息，我们想要对象达成的期望状态的相关属性。</em></p>
+<h3 id="关于-replace-和-apply">关于 replace 和 apply</h3>
+<p>通过上面对声明式和声明式 API 的理解，我们也就能更好的理解极客时间中张磊老师课程里所说的 replace 和 apply 的区别。replace 的语义主要体现在删除重建的命令上，而 apply 是对资源对象期望状态的更新。</p>
+<p>根据课程中的例子来更好的理解：</p>
+<pre><code class="language-yaml"># nginx.yaml 将 Nginx 容器镜像改为1.7.9
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.7.9
+</code></pre>
+<pre><code class="language-shell"># 这个命令所表达的语义，是要将 nginx 资源强制替换为修改后的资源
+# 明确表示了执行过程：先删除，然后重建
+$ kubectl replace -f nginx.yaml
+
+# 而 apply 则只表明更新 nginx 资源的期望状态，具体的实现过程，由其自行处理
+$ kubectl apply -f nginx.yaml
+</code></pre>
+<p>在实际的使用过程中，我们也要尽量避免使用 <code>replace -f</code> 命令，同时避免更新有上层抽象控制的底层资源对象。</p>
+<h3 id="声明式-api-特点">声明式 API 特点</h3>
+<p>现在我们也能更好的理解 <a href="https://kubernetes.io/zh/docs/concepts/extend-kubernetes/api-extension/custom-resources/#declarative-apis">Kubernetes 官网</a>中对于声明式 API 的一些说明，附带上一些我的理解：</p>
+<ul>
+<li>你的 API 包含相对而言为数不多的、尺寸较小的对象（资源）。
+<ul>
+<li><em>声明式重要的点在于描述，描述可以详细，但不应用于存储具体数据，应该描述其元数据。</em></li>
+</ul>
+</li>
+<li>对象定义了应用或者基础设施的配置信息。</li>
+<li>对象更新操作频率较低。</li>
+<li>通常需要人来读取或写入对象。</li>
+<li>对象的主要操作是 CRUD 风格的（创建、读取、更新和删除）。</li>
+<li>不需要跨对象的事务支持：API 对象代表的是期望状态而非确切实际状态。
+<ul>
+<li><em>也就是说我们在设计抽象资源时，如果该资源的创建需要依赖其他资源的实际状态，那么应该考虑将其归属于所依赖的资源。</em></li>
+</ul>
+</li>
+</ul>
+<p>也能更好的理解什么不是声明式 API：</p>
+<ul>
+<li>客户端发出“做这个操作”的指令，之后在该操作结束时获得同步响应。
+<ul>
+<li><em>声明式 API 的一个特点，声明的永远是期望状态，不能即时得到处理成功的响应。对实时性要求很高的场景是不合适的。</em></li>
+</ul>
+</li>
+<li>客户端发出“做这个操作”的指令，并获得一个操作 ID，之后需要检查一个 Operation（操作） 对象来判断请求是否成功完成。
+<ul>
+<li><em>我们要相信我们期望的状态是能达到的，并且不能在状态达成后才需要处理一些其他逻辑，如果是这样，应该考虑将这些逻辑放入声明式 API，或是放弃使用。</em></li>
+</ul>
+</li>
+<li>你会将你的 API 类比为远程过程调用（Remote Procedure Call，RPCs）。
+<ul>
+<li><em>这很明显，过程调用强调的是过程，如果你的 API 非常注重过程的处理，那就不适合声明式 API</em></li>
+</ul>
+</li>
+<li>直接存储大量数据；例如每个对象几 kB，或者存储上千个对象。</li>
+<li>需要较高的访问带宽（长期保持每秒数十个请求）。</li>
+<li>存储有应用来处理的最终用户数据（如图片、个人标识信息（PII）等）或者其他大规模数据。</li>
+<li>在对象上执行的常规操作并非 CRUD 风格。
+<ul>
+<li><em>对于声明式 API 而言，我们对资源对象的操作是有限的，仅能对其进行状态转移，这也就局限为 CRUD 操作。如果一项操作不能抽象为状态的改变，那么就证明不适合声明式 API。</em></li>
+</ul>
+</li>
+<li>API 不太容易用对象来建模。</li>
+<li>你决定使用操作 ID 或者操作对象来表现悬决的操作。
+<ul>
+<li><em>这里“悬决的操作”英文原文为&quot;pending operations&quot;，表达的应该是悬而未决的意思。然而需要挂起，就表示你知道这个操作在可控的范围内需要依赖于其他操作的完成，这是不符合声明式 API 要求的。</em></li>
+</ul>
+</li>
+</ul>
+<h2 id="控制器模式">控制器模式</h2>
+<p>从上面可以了解到，声明式 API 让我们可以描述资源对象的期望状态，那么 Kubernetes 内部是如何将期望状态转为实际状态的呢？答案就是 Kubernetes 的控制器模式。这是 kubernetes 的核心机制，也叫 Control Loop 或是 Reconcile Loop。</p>
+<p>以下是 <a href="https://kubernetes.io/zh/docs/concepts/architecture/controller/">Kubernetes 官网</a>对于 Control Loop 的解释，很详细：</p>
+<blockquote>
+<p>在机器人技术和自动化领域，控制回路（Control Loop）是一个非终止回路，用于调节系统状态。</p>
+<p>这是一个控制环的例子：房间里的温度自动调节器。</p>
+<p>当你设置了温度，告诉了温度自动调节器你的<em>期望状态（Desired State）</em>。 房间的实际温度是<em>当前状态（Current State）</em>。 通过对设备的开关控制，温度自动调节器让其当前状态接近期望状态。</p>
+</blockquote>
+<p>控制器模式指的就是这样一个控制循环，Kubernetes 中的控制器通过 “List&amp;Watch 机制” 实现对于 Kubernetes 中相关资源变化的关注，从而触发控制器逻辑的处理，完成最终用户的期望，并且实时更新资源的状态来告知用户。Kubernetes 自身的固有资源也都是通过这种形式来实现的。</p>
+<p>这个控制循环确保了实际状态与期望状态的一致性，而实际状态向期望状态逐渐转换的这个过程，叫做 Reconcile，所以控制循环也叫做调谐循环（Reconcile Loop）。正是由于 Reconcile 的存在，它不断的执行“检查 -&gt; Diff -&gt; 更新实际状态”这样一个过程，才使得这个系统能够始终对系统当前状态与期望状态对比差异并采取必要的行动。</p>
+<h4 id="期望状态与实际状态">期望状态与实际状态</h4>
+<blockquote>
+<p>Kubernetes 采用了系统的云原生视图，并且可以处理持续的变化。</p>
+<p>在任务执行时，集群随时都可能被修改，并且控制回路会自动修复故障。 这意味着很可能集群永远不会达到稳定状态。</p>
+<p>只要集群中的控制器在运行并且进行有效的修改，整体状态的稳定与否是无关紧要的。</p>
+</blockquote>
+<h3 id="关于控制器的实现原理">关于控制器的实现原理</h3>
+<p>限于篇幅，不讲了。感兴趣的可以看 Tower 上关于 Controller 原理和源码的笔记：<a href="/posts/kubernetes-samplecontroller">《从 SampleController 项目看 kubernetes controller 的设计》</a>。</p>
+<h2 id="声明式的优点">声明式的优点</h2>
+<h3 id="可读性">可读性</h3>
+<p>声明式的描述通常比一连串的命令更具有可读性。</p>
+<h4 id="dsl-2">DSL</h4>
+<p>对于在 DSL 上的体现来说，DSL 通常比伪代码更接近自然语言，并且非程序员更容易学习。包括内部 DSL，通常也会比宿主语言实现同样功能的命令更加易读。</p>
+<h4 id="函数式编程-2">函数式编程</h4>
+<p>函数式编程也同样具有更高的可读性，因为所有的状态都是不可变的。你声明一个状态，但是不能改变这个状态。由于你无法改变它，所以在函数式编程中不需要变量。对函数式编程的讨论也更像是数学、公式，而不像是程序语句。</p>
+<pre><code class="language-c">x = x + 1
+</code></pre>
+<p>如果你把这行代码交给一个数学家去看，他会认为这是一个不成立的等式。如果用函数式编程的形式：</p>
+<pre><code class="language-c">y = x + 1
+</code></pre>
+<p>这个数学家就会明白 y 的值是 x + 1 的计算结果。并且它不会被改变，被声明之后，y 就永远代表的 x + 1。</p>
+<h4 id="声明式-api">声明式 API</h4>
+<p>面向终态的声明式 API 的可读性是毋庸置疑的，我们关注的就是对象最终的运行状态，现在可以通过对象的描述直接了解，而不用根据过程进行推算。</p>
+<h3 id="简单">简单</h3>
+<p>一段代码越简单，就越容易看懂并发现错误，也就越容易对系统进行修改。所以我们鼓励采用有意义的变量名，清晰的代码结构，整洁的系统架构等等。基于同样的理由，DSL 的本质就是<strong>通过简单来换取在某一领域内的高效</strong>。DSL 的简单体现在其有限的表达性上，它不需要做到万能，只相反，DSL 只需要解决系统某一领域内的问题。只有在这个领域内，DSL 才有用，也更推荐使用。</p>
+<h3 id="幂等性">幂等性</h3>
+<p>由于我们面向的最终状态，对状态修改的操作一定是幂等性的。因为没有副作用，所以对于重复操作的效果是稳定的，也就能更好的处理分布式环境和并发等问题。</p>
+<h3 id="可交换性">可交换性</h3>
+<p>上面也提到了，声明式 API 不需要跨对象的事务支持。换句话说，<strong>声明式 API 不需要事务中固定的执行顺序</strong>。因为我们描述的总是期望状态，所以在多个对象协作的场景中，对每个对象的创建或状态转移都是不需要保证执行顺序的。</p>
+<h3 id="关于控制器模式的优点">关于控制器模式的优点</h3>
+<p>当我们自己设计的 API 也经过良好的抽象，对外的表现形式与声明式 API 的表现形式一致时，我们为什么还要用 CRD 呢？</p>
+<p>这就需要我们对控制器模式的一些思考，控制器模式对比命令式的执行模型有哪些优点。</p>
+<p>在一次性的命令执行过程中，指令的执行失败是很难处理的，通常是响应错误后需要记录日志、报警及回滚等一系列操作。调用方在接收到响应错误时，也很难把握对象当前的状态，后续的处理也会很困难。</p>
+<p>而控制器模式是一个永不终止的循环，在这个循环中，控制器会通过观察对象状态，不断尝试调谐（Reconcile）以达成实际状态和期望状态的一致。这个过程是包含错误处理的流程，不需要调用方费心。调用方也可以通过对象的 status 字段实时查看对象的当前状态，以便于辅助处理。</p>
+<p><em>所以我认为当你的 API 足够声明式的时候，CRD 永远是首选项。</em></p>
+<h2 id="相关链接">相关链接</h2>
+<p><a href="https://skyao.io/learning-cloudnative/declarative/">声明式设计</a></p>
+<p><a href="http://blog.zhaojie.me/2010/04/trends-and-future-directions-in-programming-languages-by-anders-2-declarative-programming-and-dsl.html">编程语言的发展趋势及未来方向（2）：声明式编程与DSL</a></p>
+<p><a href="https://www.toptal.com/software/declarative-programming">Declarative Programming: Is It A Real Thing?</a></p>
+<p><a href="https://www.cnblogs.com/lisperl/archive/2011/11/21/2257360.html">浅析函数式编程与命令式编程的区别（一）计算模型的区别</a></p>
+<p><a href="https://draveness.me/dsl/">谈谈 DSL 以及 DSL 的应用（以 CocoaPods 为例）</a></p>
+<p><a href="https://i.cloudnative.to/oam/event">【网络研讨会】GitOps 及 OAM 的落地实践</a></p>
+]]></content>
+    </entry>
     <entry>
         <title type="html"><![CDATA[Kubernetes 网络笔记]]></title>
         <id>https://cnbailian.github.io/post/kubernetes-network-notes/</id>
@@ -1912,968 +3317,6 @@ null
 <p>如果有两个 schema 互相使用 <code>$ref</code> 进行引用，不应该陷入无限循环。</p>
 <p><strong>$comment</strong></p>
 <p><code>$comment</code> 用于 schema 开发人员对文档进行注释，不需要展示给最终用户看。</p>
-]]></content>
-    </entry>
-    <entry>
-        <title type="html"><![CDATA[OAuth2.0 与 oauth2-server 库的使用]]></title>
-        <id>https://cnbailian.github.io/post/oauth2-and-oauth2-package/</id>
-        <link href="https://cnbailian.github.io/post/oauth2-and-oauth2-package/">
-        </link>
-        <updated>2018-11-22T11:00:00.000Z</updated>
-        <summary type="html"><![CDATA[<p><a href="https://en.wikipedia.org/wiki/OAuth">OAuth2.0</a> 是关于授权的开放网络标准，它允许用户已第三方应用获取该用户在某一网站的私密资源，而无需提供用户名与密码，目前已在全世界得到广泛应用。</p>
-<p><a href="https://github.com/thephpleague/oauth2-server">league/oauth2-server</a> 是一个轻量级并且功能强大的符合 OAuth2.0 协议的 PHP 库，使用它可以构建出标准的 OAuth2.0 授权服务器。</p>
-<p>本文通过对 PHP 库：league/oauth2-server 进行实践的同时，理解 OAuth2.0 的工作流程与设计思路。</p>
-]]></summary>
-        <content type="html"><![CDATA[<p><a href="https://en.wikipedia.org/wiki/OAuth">OAuth2.0</a> 是关于授权的开放网络标准，它允许用户已第三方应用获取该用户在某一网站的私密资源，而无需提供用户名与密码，目前已在全世界得到广泛应用。</p>
-<p><a href="https://github.com/thephpleague/oauth2-server">league/oauth2-server</a> 是一个轻量级并且功能强大的符合 OAuth2.0 协议的 PHP 库，使用它可以构建出标准的 OAuth2.0 授权服务器。</p>
-<p>本文通过对 PHP 库：league/oauth2-server 进行实践的同时，理解 OAuth2.0 的工作流程与设计思路。</p>
-<!--more-->  
-<h2 id="术语">术语</h2>
-<p>了解 OAuth2.0 与 oauth2-server 的专用术语，对于理解后面内容很有帮助。</p>
-<p><strong>OAuth2.0 定义了四个角色</strong></p>
-<ol>
-<li><strong>Client</strong>：客户端，第三方应用程序。</li>
-<li><strong>Resource Owner</strong>：资源所有者，授权 Client 访问其帐户的用户。</li>
-<li><strong>Authorization server</strong>：授权服务器，服务商专用于处理用户授权认证的服务器。</li>
-<li><strong>Resource server</strong>：资源服务器，服务商用于存放用户受保护资源的服务器，它可以与授权服务器是同一台服务器，也可以是不同的服务器。</li>
-</ol>
-<p><strong>oauth2-server</strong></p>
-<ol>
-<li><strong>Access token</strong>：用于访问受保护资源的令牌。</li>
-<li><strong>Authorization code</strong>：发放给应用程序的中间令牌，客户端应用使用此令牌交换 access token。</li>
-<li><strong>Scope</strong>：授予应用程序的权限范围。</li>
-<li><strong>JWT</strong>：<a href="https://tools.ietf.org/html/rfc7519">Json Web Token</a> 是一种用于安全传输的数据传输格式。</li>
-</ol>
-<h2 id="运行流程">运行流程</h2>
-<figure data-type="image" tabindex="1"><img src="https://tva1.sinaimg.cn/large/006y8mN6ly1g85wd2xhuoj30o70lkq3n.jpg" alt="flowchart.png" loading="lazy"></figure>
-<h2 id="安装">安装</h2>
-<p>推荐使用 <a href="https://getcomposer.org/">Composer</a> 进行安装：</p>
-<pre><code class="language-string">composer require league/oauth2-server
-</code></pre>
-<p>根据<a href="#%E6%8E%88%E6%9D%83%E6%A8%A1%E5%BC%8F">授权模式</a>的不同，oauth2-server 提供了不同的 Interface 与 Triat 帮助实现。</p>
-<p><em>本文发布时，版本号为7.3.1。</em></p>
-<p><strong>生成公钥与私钥</strong></p>
-<p>公钥与私钥用于签名和验证传输的 <a href="https://tools.ietf.org/html/rfc7519">JWT</a>，授权服务器使用私钥签名 JWT，资源服务器拥有公钥验证 JWT。</p>
-<p><em>oauth2-server 使用 JWT 传输访问令牌(access token)，方便资源服务器获取其中内容，所以需要使用非对称加密。</em></p>
-<p>生成私钥，在终端中运行：</p>
-<pre><code class="language-string">openssl genrsa -out private.key 2048
-</code></pre>
-<p>使用私钥提取私钥：</p>
-<pre><code class="language-string">openssl rsa -in private.key -pubout -out public.key
-</code></pre>
-<p>私钥必须保密于授权服务器中，并将公钥分发给资源服务器。</p>
-<p><strong>生成加密密钥</strong></p>
-<p>加密密钥用于加密授权码(auth code)与刷新令牌(refesh token)，AuthorizationServer(授权服务器启动类)接受两种加密密钥，<code>string</code> 或 <code>defuse/php-encryption</code> 库的对象。</p>
-<p><em>加密授权码(auth code)与刷新令牌(refesh token)只有授权权服务器使用，所以使用对称加密。</em></p>
-<p>生成字符串密钥，在终端中输入：</p>
-<pre><code class="language-string">php -r 'echo base64_encode(random_bytes(32)), PHP_EOL;'
-</code></pre>
-<p>生成对象，在项目根目录的终端中输入：</p>
-<pre><code class="language-string">vendor/bin/generate-defuse-key
-</code></pre>
-<p>将获得的内容，传入 AuthorizationServer：</p>
-<pre><code>use \Defuse\Crypto\Key;
-$server = new AuthorizationServer(
-    $clientRepository,
-    $accessTokenRepository,
-    $scopeRepository,
-    $privateKeyPath,
-    Key::loadFromAsciiSafeString($encryptionKey) //传入加密密钥
-);
-</code></pre>
-<p><strong>PHP版本支持</strong></p>
-<ul>
-<li>PHP 7.0</li>
-<li>PHP 7.1</li>
-<li>PHP 7.2</li>
-</ul>
-<h2 id="授权模式">授权模式</h2>
-<p>OAuth2.0 定义了四种授权模式，以应对不同情况时的授权。</p>
-<ol>
-<li>授权码模式</li>
-<li>隐式授权模式</li>
-<li>密码模式</li>
-<li>客户端模式</li>
-</ol>
-<h2 id="客户端类型">客户端类型</h2>
-<ul>
-<li>保密的：
-<ul>
-<li>客户端可以安全的存储自己与用户的凭据（例如：有所属的服务器端）</li>
-</ul>
-</li>
-<li>公开的：
-<ul>
-<li>客户端无法安全的存储自己与用户的凭据（例如：运行在浏览器的单页应用）</li>
-</ul>
-</li>
-</ul>
-<h2 id="选用哪种授权模式">选用哪种授权模式？</h2>
-<p>如果客户端是保密的，应使用<a href="#%E6%8E%88%E6%9D%83%E7%A0%81%E6%A8%A1%E5%BC%8F">授权码模式</a>。</p>
-<p>如果客户端是公开的，应使用<a href="#%E9%9A%90%E5%BC%8F%E6%8E%88%E6%9D%83%E6%A8%A1%E5%BC%8F">隐式授权模式</a>。</p>
-<p>如果用户对于此客户端高度信任（例如：第一方应用程序或操作系统程序），应使用<a href="#%E5%AF%86%E7%A0%81%E6%A8%A1%E5%BC%8F">密码模式</a>。</p>
-<p>如果客户端是以自己的名义，不与用户产生关系，应使用<a href="#%E5%AE%A2%E6%88%B7%E7%AB%AF%E6%A8%A1%E5%BC%8F">客户端模式</a>。</p>
-<h2 id="预先注册">预先注册</h2>
-<p>客户端需要预先在授权服务器进行注册，用以获取 <code>client_id</code> 与 <code>client_secret</code>，也可以在注册是预先设定好 <code>redirect_uri</code>，以便于之后可以使用默认的 <code>redirect_uri</code>。</p>
-<h2 id="授权码模式">授权码模式</h2>
-<p>授权码模式是 OAuth2.0 种功能最完整，流程最严密的一种模式，如果你使用过 Google 或 QQ 登录过第三方应用程序，应该会对这个流程的第一部分很熟悉。</p>
-<h4 id="流程">流程</h4>
-<p><strong>第一部分（用户可见）</strong></p>
-<p>用户访问客户端，客户端将用户导向授权服务器时，将以下参数通过 <code>GET query</code> 传入：</p>
-<ul>
-<li><code>response_type</code>：授权类型，必选项，值固定为：<code>code</code></li>
-<li><code>client_id</code>：客户端ID，必选项</li>
-<li><code>redirect_uri</code>：重定向URI，可选项，不填写时默认预先注册的重定向URI</li>
-<li><code>scope</code>：权限范围，可选项，以空格分隔</li>
-<li><code>state</code>：<a href="https://zh.wikipedia.org/wiki/%E8%B7%A8%E7%AB%99%E8%AF%B7%E6%B1%82%E4%BC%AA%E9%80%A0">CSRF</a>令牌，可选项，但强烈建议使用，应将该值存储与用户会话中，以便在返回时验证</li>
-</ul>
-<p>用户选择是否给予客户端授权</p>
-<p>假设用户给予授权，授权服务器将用户导向客户端事先指定的 <code>redirect_uri</code>，并将以下参数通过 <code>GET query</code> 传入：</p>
-<ul>
-<li><code>code</code>：授权码(Authorization code)</li>
-<li><code>state</code>：请求中发送的 <code>state</code>，原样返回。客户端将此值与用户会话中的值进行对比，以确保授权码响应的是此客户端而非其他客户端程序</li>
-</ul>
-<p><strong>第二部分（用户不可见）</strong></p>
-<p>客户端已得到授权，通过 <code>POST</code> 请求向授权服务器获取访问令牌(access token)：</p>
-<ul>
-<li><code>grant_type</code>：授权模式，值固定为：<code>authorization_code</code></li>
-<li><code>client_id</code>：客户端ID</li>
-<li><code>client_secret</code>：客户端 secret</li>
-<li><code>redirect_uri</code>：使用与第一部分请求相同的 URI</li>
-<li><code>code</code>：第一部分所获的的授权码，要注意URL解码</li>
-</ul>
-<p>授权服务器核对授权码与重定向 URI，确认无误后，向客户端响应下列内容：</p>
-<ul>
-<li>
-<p><code>token_type</code>：令牌类型，值固定为：<code>Bearer</code></p>
-</li>
-<li>
-<p><code>expires_in</code>：访问令牌的存活时间</p>
-</li>
-<li>
-<p><code>access_token</code>：访问令牌</p>
-</li>
-<li>
-<p><code>refresh_token</code>：刷新令牌，访问令牌过期后，使用刷新令牌重新获取</p>
-</li>
-</ul>
-<h4 id="使用-oauth2-server-实现">使用 oauth2-server 实现</h4>
-<h5 id="初始化">初始化</h5>
-<p>OAuth2.0 只是协议，在实现上需要联系到用户与数据库存储，oauth2-server 的新版本并没有指定某种数据库，但它提供了 <a href="#Interfaces">Interfaces</a> 与 <a href="#Traits">Traits</a> 帮助我们实现，这让我们可以方便的使用任何形式的数据存储方式，这种方便的代价就是需要我们自行创建 <a href="#Repositories">Repositories</a> 与 <a href="#Entities">Entities</a>。</p>
-<h5 id="初始化-server">初始化 server</h5>
-<pre><code>// 初始化存储库
-$clientRepository = new ClientRepository(); // Interface: ClientRepositoryInterface
-$scopeRepository = new ScopeRepository(); // Interface: ScopeRepositoryInterface
-$accessTokenRepository = new AccessTokenRepository(); // Interface: AccessTokenRepositoryInterface
-$authCodeRepository = new AuthCodeRepository(); // Interface: AuthCodeRepositoryInterface
-$refreshTokenRepository = new RefreshTokenRepository(); // Interface: RefreshTokenRepositoryInterface
-$userRepository = new UserRepository(); //Interface: UserRepositoryInterface
-
-// 私钥与加密密钥
-$privateKey = 'file://path/to/private.key';
-//$privateKey = new CryptKey('file://path/to/private.key', 'passphrase'); // 如果私钥文件有密码
-$encryptionKey = 'lxZFUEsBCJ2Yb14IF2ygAHI5N4+ZAUXXaSeeJm6+twsUmIen'; // 加密密钥字符串
-// $encryptionKey = Key::loadFromAsciiSafeString($encryptionKey); //如果通过 generate-defuse-key 脚本生成的字符串，可使用此方法传入
-
-// 初始化 server
-$server = new \League\OAuth2\Server\AuthorizationServer(
-    $clientRepository,
-    $accessTokenRepository,
-    $scopeRepository,
-    $privateKey,
-    $encryptionKey
-);
-</code></pre>
-<h5 id="初始化授权码类型">初始化授权码类型</h5>
-<pre><code>// 授权码授权类型初始化
-$grant = new \League\OAuth2\Server\Grant\AuthCodeGrant(
-    $authCodeRepository,
-    $refreshTokenRepository,
-    new \DateInterval('PT10M') // 设置授权码过期时间为10分钟
-);
-$grant-&gt;setRefreshTokenTTL(new \DateInterval('P1M')); // 设置刷新令牌过期时间1个月
-
-// 将授权码授权类型添加进 server
-$server-&gt;enableGrantType(
-    $grant,
-    new \DateInterval('PT1H') // 设置访问令牌过期时间1小时
-);
-</code></pre>
-<p><em><a href="http://php.net/manual/zh/class.dateinterval.php">DateInterval</a></em></p>
-<h5 id="使用">使用</h5>
-<p><em>注意：这里的示例演示的是 Slim Framework 的用法，Slim 不是这个库的必要条件，只需要请求与响应符合<a href="https://www.php-fig.org/psr/psr-7/">PSR-7</a>规范即可。</em></p>
-<p>用户向客户端提出 OAuth 登录请求，客户端将用户重定向授权服务器的地址（例如：https://example.com/authorize?response_type=code&amp;client_id={client_id}&amp;redirect_uri={redirect_uri}&amp;scope{scope}&amp;state={state})：</p>
-<pre><code>$app-&gt;get('/authorize', function (ServerRequestInterface $request, ResponseInterface $response) use ($server) {
-   
-    try {
-        // 验证 HTTP 请求，并返回 authRequest 对象
-        $authRequest = $server-&gt;validateAuthorizationRequest($request);
-        // 此时应将 authRequest 对象序列化后存在当前会话(session)中
-        $_SESSION['authRequest'] = serialize($authRequest);
-        // 然后将用户重定向至登录入口或在当前地址直接响应登录页面
-        return $response-&gt;getBody()-&gt;write(file_get_contents(&quot;login.html&quot;));
-        
-    } catch (OAuthServerException $exception) {
-        // 可以捕获 OAuthServerException，将其转为 HTTP 响应
-        return $exception-&gt;generateHttpResponse($response);
-        
-    } catch (\Exception $exception) {
-    	// 其他异常
-        $body = new Stream(fopen('php://temp', 'r+'));
-        $body-&gt;write($exception-&gt;getMessage());
-        return $response-&gt;withStatus(500)-&gt;withBody($body);
-        
-    }
-});
-</code></pre>
-<p>此时展示给用户的是这样的页面：<br>
-<img src="https://tva1.sinaimg.cn/large/006y8mN6ly1g85wd9vzqsj30yg0ke0wc.jpg" alt="qq-oauth.png" loading="lazy"></p>
-<p>用户提交登录后，设置好用户实体(userEntity)：</p>
-<pre><code>$app-&gt;post('/login', function (ServerRequestInterface $request, ResponseInterface $response) use ($server) {
-    try {
-        // 在会话(session)中取出 authRequest 对象
-        $authRequest = unserialize($_SESSION['authRequest']);
-        // 设置用户实体(userEntity)
-        $authRequest-&gt;setUser(new UserEntity(1));
-        // 设置权限范围
-        $authRequest-&gt;setScopes(['basic'])
-        // true = 批准，false = 拒绝
-        $authRequest-&gt;setAuthorizationApproved(true);
-        // 完成后重定向至客户端请求重定向地址
-	    return $server-&gt;completeAuthorizationRequest($authRequest, $response);
-    } catch (OAuthServerException $exception) {
-        // 可以捕获 OAuthServerException，将其转为 HTTP 响应
-        return $exception-&gt;generateHttpResponse($response);
-    } catch (\Exception $exception) {
-        // 其他异常
-        $body = new Stream(fopen('php://temp', 'r+'));
-        $body-&gt;write($exception-&gt;getMessage());
-        return $response-&gt;withStatus(500)-&gt;withBody($body);
-    }
-});
-</code></pre>
-<p>客户端通过授权码请求访问令牌：</p>
-<pre><code>$app-&gt;post('/access_token', function (ServerRequestInterface $request, ResponseInterface $response) use ($server) {
-
-    try {
-        // 这里只需要这一行就可以，具体的判断在 Repositories 中
-        return $server-&gt;respondToAccessTokenRequest($request, $response);
-    } catch (\League\OAuth2\Server\Exception\OAuthServerException $exception) {
-        return $exception-&gt;generateHttpResponse($response);
-    } catch (\Exception $exception) {
-        $body = new Stream(fopen('php://temp', 'r+'));
-        $body-&gt;write($exception-&gt;getMessage());
-        return $response-&gt;withStatus(500)-&gt;withBody($body);
-    }
-});
-</code></pre>
-<h2 id="隐式授权模式">隐式授权模式</h2>
-<p>隐式授权相当于是授权码模式的简化版本：</p>
-<h4 id="流程用户可见">流程(用户可见)</h4>
-<p>用户访问客户端，客户端将用户导向授权服务器时，将以下参数通过 <code>GET query</code> 传入：</p>
-<ul>
-<li><code>response_type</code>：授权类型，必选项，值固定为：<code>token</code></li>
-<li><code>client_id</code>：客户端ID，必选项</li>
-<li><code>redirect_uri</code>：重定向URI，可选项，不填写时默认预先注册的重定向URI</li>
-<li><code>scope</code>：权限范围，可选项，以空格分隔</li>
-<li><code>state</code>：<a href="https://zh.wikipedia.org/wiki/%E8%B7%A8%E7%AB%99%E8%AF%B7%E6%B1%82%E4%BC%AA%E9%80%A0">CSRF</a>令牌，可选项，但强烈建议使用，应将该值存储与用户会话中，以便在返回时验证</li>
-</ul>
-<p>用户选择是否给予客户端授权</p>
-<p>假设用户给予授权，授权服务器将用户导向客户端事先指定的 <code>redirect_uri</code>，并将以下参数通过 <code>GET query</code> 传入：</p>
-<ul>
-<li><code>token_type</code>：令牌类型，值固定为：<code>Bearer</code></li>
-<li><code>expires_in</code>：访问令牌的存活时间</li>
-<li><code>access_token</code>：访问令牌</li>
-<li><code>state</code>：请求中发送的 <code>state</code>，原样返回。客户端将此值与用户会话中的值进行对比，以确保授权码响应的是此应用程序而非其他应用程序</li>
-</ul>
-<p>整个流程与授权码模式的第一部分类似，只是授权服务器直接响应了访问令牌，跳过了授权码的步骤。它适用于没有服务器，完全运行在前端的应用程序。</p>
-<p><em>此模式下没有刷新令牌(refresh token)的返回。</em></p>
-<h4 id="使用-oauth2-server-实现-2">使用 oauth2-server 实现</h4>
-<p><strong><a href="#%E5%88%9D%E5%A7%8B%E5%8C%96">初始化 server</a></strong></p>
-<h5 id="初始化授权码类型-2">初始化授权码类型</h5>
-<pre><code>// 将隐式授权类型添加进 server
-$server-&gt;enableGrantType(
-    new ImplicitGrant(new \DateInterval('PT1H')),
-    new \DateInterval('PT1H') // 设置访问令牌过期时间1小时
-);
-</code></pre>
-<p><em><a href="http://php.net/manual/zh/class.dateinterval.php">DateInterval</a></em></p>
-<h5 id="使用-2">使用</h5>
-<p><em>注意：这里的示例演示的是 Slim Framework 的用法，Slim 不是这个库的必要条件，只需要请求与响应符合<a href="https://www.php-fig.org/psr/psr-7/">PSR-7</a>规范即可。</em></p>
-<pre><code>$app-&gt;post('/login', function (ServerRequestInterface $request, ResponseInterface $response) use ($server) {
-    try {
-        // 在会话(session)中取出 authRequest 对象
-        $authRequest = unserialize($_SESSION['authRequest']);
-        // 设置用户实体(userEntity)
-        $authRequest-&gt;setUser(new UserEntity(1));
-        // 设置权限范围
-        $authRequest-&gt;setScopes(['basic'])
-        // true = 批准，false = 拒绝
-        $authRequest-&gt;setAuthorizationApproved(true);
-        // 完成后重定向至客户端请求重定向地址
-	    return $server-&gt;completeAuthorizationRequest($authRequest, $response);
-    } catch (OAuthServerException $exception) {
-        // 可以捕获 OAuthServerException，将其转为 HTTP 响应
-        return $exception-&gt;generateHttpResponse($response);
-    } catch (\Exception $exception) {
-        // 其他异常
-        $body = new Stream(fopen('php://temp', 'r+'));
-        $body-&gt;write($exception-&gt;getMessage());
-        return $response-&gt;withStatus(500)-&gt;withBody($body);
-    }
-});
-</code></pre>
-<p>此时展示给用户的是这样的页面：<br>
-<img src="https://tva1.sinaimg.cn/large/006y8mN6ly1g85wde8ypgj30yg0ke0wc.jpg" alt="qq-oauth.png" loading="lazy"></p>
-<p>用户提交登录后，设置好用户实体(userEntity)：</p>
-<pre><code>$app-&gt;post('/login', function (ServerRequestInterface $request, ResponseInterface $response) use ($server) {
-   
-    try {
-	      // 在会话(session)中取出 authRequest 对象
-        $authRequest = unserialize($_SESSION['authRequest']);
-				// 设置用户实体(userEntity)
-		    $authRequest-&gt;setUser(new UserEntity(1));
-				// 设置权限范围
-				$authRequest-&gt;setScopes(['basic'])
-				// true = 批准，false = 拒绝
-		    $authRequest-&gt;setAuthorizationApproved(true);
-				// 完成后重定向至客户端请求重定向地址
-		    return $server-&gt;completeAuthorizationRequest($authRequest, $response);
-    } catch (OAuthServerException $exception) {
-        // 可以捕获 OAuthServerException，将其转为 HTTP 响应
-        return $exception-&gt;generateHttpResponse($response);
-    } catch (\Exception $exception) {
-    	// 其他异常
-        $body = new Stream(fopen('php://temp', 'r+'));
-        $body-&gt;write($exception-&gt;getMessage());
-        return $response-&gt;withStatus(500)-&gt;withBody($body);
-    }
-});
-</code></pre>
-<h2 id="密码模式">密码模式</h2>
-<p>密码模式是由用户提供给客户端账号密码来获取访问令牌，这属于危险行为，所以此模式只适用于高度信任的客户端（例如第一方应用程序）。客户端不应存储用户的账号密码。</p>
-<p><em>OAuth2 协议规定此模式不需要传 <code>client_id</code> &amp; <code>client_secret</code>，但 oauth-server 库需要</em></p>
-<h4 id="流程-2">流程</h4>
-<p>客户端要求用户提供授权凭据，通常是账号密码</p>
-<p>然后，客户端发送 <code>POST</code> 请求至授权服务器，携带以下参数：</p>
-<ul>
-<li><code>grant_type</code>：授权类型，必选项，值固定为：<code>password</code></li>
-<li><code>client_id</code>：客户端ID，必选项</li>
-<li><code>client_secret</code>：客户端 secret</li>
-<li><code>scope</code>：权限范围，可选项，以空格分隔</li>
-<li><code>username</code>：用户账号</li>
-<li><code>password</code>：用户密码</li>
-</ul>
-<p>授权服务器响应以下内容：</p>
-<ul>
-<li><code>token_type</code>：令牌类型，值固定为：<code>Bearer</code></li>
-<li><code>expires_in</code>：访问令牌的存活时间</li>
-<li><code>access_token</code>：访问令牌</li>
-<li><code>refresh_token</code>：刷新令牌，访问令牌过期后，使用刷新令牌重新获取</li>
-</ul>
-<h4 id="使用-oauth2-server-实现-3">使用 oauth2-server 实现</h4>
-<p><strong><a href="#%E5%88%9D%E5%A7%8B%E5%8C%96">初始化 server</a></strong></p>
-<h5 id="初始化授权码类型-3">初始化授权码类型</h5>
-<pre><code>$grant = new \League\OAuth2\Server\Grant\PasswordGrant(
-     $userRepository,
-     $refreshTokenRepository
-);
-
-$grant-&gt;setRefreshTokenTTL(new \DateInterval('P1M')); // 设置刷新令牌过期时间1个月
-
-// 将密码授权类型添加进 server
-$server-&gt;enableGrantType(
-    $grant,
-    new \DateInterval('PT1H') // 设置访问令牌过期时间1小时
-);
-</code></pre>
-<p><em><a href="http://php.net/manual/zh/class.dateinterval.php">DateInterval</a></em></p>
-<h5 id="使用-3">使用</h5>
-<p><em>注意：这里的示例演示的是 Slim Framework 的用法，Slim 不是这个库的必要条件，只需要请求与响应符合<a href="https://www.php-fig.org/psr/psr-7/">PSR-7</a>规范即可。</em></p>
-<pre><code>$app-&gt;post('/access_token', function (ServerRequestInterface $request, ResponseInterface $response) use ($server) {
-
-    try {
-        // 这里只需要这一行就可以，具体的判断在 Repositories 中
-        return $server-&gt;respondToAccessTokenRequest($request, $response);
-    } catch (\League\OAuth2\Server\Exception\OAuthServerException $exception) {
-        return $exception-&gt;generateHttpResponse($response);
-    } catch (\Exception $exception) {
-        $body = new Stream(fopen('php://temp', 'r+'));
-        $body-&gt;write($exception-&gt;getMessage());
-        return $response-&gt;withStatus(500)-&gt;withBody($body);
-    }
-});
-</code></pre>
-<h2 id="客户端模式">客户端模式</h2>
-<p>客户端模式是指以客户端的名义，而不是用户的名义，向授权服务器获取认证。在这个模式下，用户与授权服务器不产生关系，用户只能感知到的客户端，所产生的资源也都由客户端处理。</p>
-<h4 id="流程-3">流程</h4>
-<p>客户端发送 <code>POST</code> 请求至授权服务器，携带以下参数：</p>
-<ul>
-<li><code>grant_type</code>：授权类型，必选项，值固定为：<code>client_credentials</code></li>
-<li><code>client_id</code>：客户端ID，必选项</li>
-<li><code>client_secret</code>：客户端 secret</li>
-<li><code>scope</code>：权限范围，可选项，以空格分隔</li>
-</ul>
-<p>授权服务器响应以下内容：</p>
-<ul>
-<li><code>token_type</code>：令牌类型，值固定为：<code>Bearer</code></li>
-<li><code>expires_in</code>：访问令牌的存活时间</li>
-<li><code>access_token</code>：访问令牌</li>
-</ul>
-<p><em>此模式下无需刷新令牌(refresh token)的返回。</em></p>
-<h4 id="使用-oauth2-server-实现-4">使用 oauth2-server 实现</h4>
-<p><strong><a href="#%E5%88%9D%E5%A7%8B%E5%8C%96">初始化 server</a></strong></p>
-<h5 id="初始化授权码类型-4">初始化授权码类型</h5>
-<pre><code>// 将客户端授权类型添加进 server
-$server-&gt;enableGrantType(
-    new \League\OAuth2\Server\Grant\ClientCredentialsGrant(),
-    new \DateInterval('PT1H') // 设置访问令牌过期时间1小时
-);
-</code></pre>
-<p><em><a href="http://php.net/manual/zh/class.dateinterval.php">DateInterval</a></em></p>
-<h5 id="使用-4">使用</h5>
-<p><em>注意：这里的示例演示的是 Slim Framework 的用法，Slim 不是这个库的必要条件，只需要请求与响应符合<a href="https://www.php-fig.org/psr/psr-7/">PSR-7</a>规范即可。</em></p>
-<pre><code class="language-php">$app-&gt;post('/access_token', function (ServerRequestInterface $request, ResponseInterface $response) use ($server) {
-
-    try {
-        // 这里只需要这一行就可以，具体的判断在 Repositories 中
-        return $server-&gt;respondToAccessTokenRequest($request, $response);
-    } catch (\League\OAuth2\Server\Exception\OAuthServerException $exception) {
-        return $exception-&gt;generateHttpResponse($response);
-    } catch (\Exception $exception) {
-        $body = new Stream(fopen('php://temp', 'r+'));
-        $body-&gt;write($exception-&gt;getMessage());
-        return $response-&gt;withStatus(500)-&gt;withBody($body);
-    }
-});
-</code></pre>
-<h2 id="刷新访问令牌access-token">刷新访问令牌(access token)</h2>
-<p>访问令牌有一个较短的存活时间，在过期后，客户端通过刷新令牌来获得新的访问令牌与刷新令牌。当用户长时间不活跃，刷新令牌也过期后，就需要重新获取授权。</p>
-<h4 id="流程-4">流程</h4>
-<p>客户端发送 <code>POST</code> 请求至授权服务器，携带以下参数：</p>
-<ul>
-<li><code>grant_type</code>：授权类型，必选项，值固定为：<code>refresh_token</code></li>
-<li><code>client_id</code>：客户端ID，必选项</li>
-<li><code>client_secret</code>：客户端 secret</li>
-<li><code>scope</code>：权限范围，可选项，以空格分隔</li>
-<li><code>refresh_token</code>：刷新令牌</li>
-</ul>
-<p>授权服务器响应以下内容：</p>
-<ul>
-<li><code>token_type</code>：令牌类型，值固定为：<code>Bearer</code></li>
-<li><code>expires_in</code>：访问令牌的存活时间</li>
-<li><code>access_token</code>：访问令牌</li>
-<li><code>refresh_token</code>：刷新令牌，访问令牌过期后，使用刷新令牌重新获取</li>
-</ul>
-<h4 id="使用-oauth2-server-实现-5">使用 oauth2-server 实现</h4>
-<p><strong><a href="#%E5%88%9D%E5%A7%8B%E5%8C%96">初始化 server</a></strong></p>
-<h5 id="初始化授权码类型-5">初始化授权码类型</h5>
-<pre><code class="language-php">$grant = new \League\OAuth2\Server\Grant\RefreshTokenGrant($refreshTokenRepository);
-$grant-&gt;setRefreshTokenTTL(new \DateInterval('P1M')); // 新的刷新令牌过期时间1个月
-
-// 将刷新访问令牌添加进 server
-$server-&gt;enableGrantType(
-    $grant,
-    new \DateInterval('PT1H') // 新的访问令牌过期时间1小时
-);
-</code></pre>
-<p><em><a href="http://php.net/manual/zh/class.dateinterval.php">DateInterval</a></em></p>
-<h5 id="使用-5">使用</h5>
-<pre><code class="language-php">$app-&gt;post('/access_token', function (ServerRequestInterface $request, ResponseInterface $response) use ($server) {
-
-    try {
-        // 这里只需要这一行就可以，具体的判断在 Repositories 中
-        return $server-&gt;respondToAccessTokenRequest($request, $response);
-    } catch (\League\OAuth2\Server\Exception\OAuthServerException $exception) {
-        return $exception-&gt;generateHttpResponse($response);
-    } catch (\Exception $exception) {
-        $body = new Stream(fopen('php://temp', 'r+'));
-        $body-&gt;write($exception-&gt;getMessage());
-        return $response-&gt;withStatus(500)-&gt;withBody($body);
-    }
-});
-</code></pre>
-<h2 id="资源服务器验证访问令牌">资源服务器验证访问令牌</h2>
-<p>oauth2-server 为资源服务器提供了一个中间件用于验证访问令牌。</p>
-<p>客户端需要在 <code>HTTP Header</code> 中使用 <code>Authorization</code> 传入访问令牌，如果通过，中间件将会在 <code>request</code> 中加入对应数据：</p>
-<ul>
-<li><code>oauth_access_token_id</code>：访问令牌 id</li>
-<li><code>oauth_client_id</code>: 客户端id</li>
-<li><code>oauth_user_id</code>：用户id</li>
-<li><code>oauth_scopes</code>：权限范围</li>
-</ul>
-<p>授权不通过，则抛出 <code>OAuthServerException::accessDenied</code> 异常。</p>
-<pre><code class="language-php">// 初始化
-$accessTokenRepository = new AccessTokenRepository(); // Interface: AccessTokenRepositoryInterface
-
-// 授权服务器分发的公钥
-$publicKeyPath = 'file://path/to/public.key';
-        
-// 创建 ResourceServer
-$server = new \League\OAuth2\Server\ResourceServer(
-    $accessTokenRepository,
-    $publicKeyPath
-);
-
-// 中间件
-new \League\OAuth2\Server\Middleware\ResourceServerMiddleware($server);
-</code></pre>
-<p>如果所用路由不支持中间件，可自行实现，符合<a href="https://www.php-fig.org/psr/psr-7/">PSR-7</a>规范即可 ：</p>
-<pre><code class="language-php">try {
-	$request = $server-&gt;validateAuthenticatedRequest($request);
-} catch (OAuthServerException $exception) {
-	return $exception-&gt;generateHttpResponse($response);
-} catch (\Exception $exception) {
-	return (new OAuthServerException($exception-&gt;getMessage(), 0, 'unknown_error', 500))-&gt;generateHttpResponse($response);
-}
-</code></pre>
-<h2 id="oauth2-server-实现">oauth2-server 实现</h2>
-<p>oauth2-server 的实现需要我们手动创建 <a href="#Repositories">Repositories</a> 与 <a href="#Entities">Entities</a>，下面展示一个项目目录示例：</p>
-<pre><code>- Entities
-	- AccessTokenEntity.php
-	- AuthCodeEntity.php
-	- ClientEntity.php
-	- RefreshTokenEntity.php
-	- ScopeEntity.php
-	- UserEntity.php
-- Repositories
-	- AccessTokenRepository.php
-	- AuthCodeRepository.php
-	- ClientRepository.php
-	- RefreshTokenRepository.php
-	- ScopeRepository.php
-	- UserRepository.php
-</code></pre>
-<h3 id="repositories">Repositories</h3>
-<p>Repositories 里主要是处理关于授权码、访问令牌等数据的存储逻辑，oauth2-server 提供了 <a href="#Interfaces">Interfaces</a> 来定义所需要实现的方法。</p>
-<pre><code class="language-php">class AccessTokenRepository implements AccessTokenRepositoryInterface
-{
-    /**
-     * @return AccessTokenEntityInterface
-     */
-    public function getNewToken(ClientEntityInterface $clientEntity, array $scopes, $userIdentifier = null)
-    {
-        // 创建新访问令牌时调用方法
-        // 需要返回 AccessTokenEntityInterface 对象
-        // 需要在返回前，向 AccessTokenEntity 传入参数中对应属性
-        // 示例代码：
-        $accessToken = new AccessTokenEntity();
-        $accessToken-&gt;setClient($clientEntity);
-        foreach ($scopes as $scope) {
-            $accessToken-&gt;addScope($scope);
-        }
-        $accessToken-&gt;setUserIdentifier($userIdentifier);
-
-        return $accessToken;
-    }
-
-    public function persistNewAccessToken(AccessTokenEntityInterface $accessTokenEntity)
-    {
-		// 创建新访问令牌时调用此方法
-        // 可以用于持久化存储访问令牌，持久化数据库自行选择
-        // 可以使用参数中的 AccessTokenEntityInterface 对象，获得有价值的信息：
-        // $accessTokenEntity-&gt;getIdentifier(); // 获得令牌唯一标识符
-        // $accessTokenEntity-&gt;getExpiryDateTime(); // 获得令牌过期时间
-        // $accessTokenEntity-&gt;getUserIdentifier(); // 获得用户标识符
-        // $accessTokenEntity-&gt;getScopes(); // 获得权限范围
-        // $accessTokenEntity-&gt;getClient()-&gt;getIdentifier(); // 获得客户端标识符
-    }
-
-    public function revokeAccessToken($tokenId)
-    {
-		// 使用刷新令牌创建新的访问令牌时调用此方法
-        // 参数为原访问令牌的唯一标识符
-        // 可将其在持久化存储中过期
-    }
-
-    public function isAccessTokenRevoked($tokenId)
-    {
-        // 资源服务器验证访问令牌时将调用此方法
-        // 用于验证访问令牌是否已被删除
-        // return true 已删除，false 未删除
-        return false;
-    }
-}
-</code></pre>
-<pre><code class="language-php">class AuthCodeRepository implements AuthCodeRepositoryInterface
-{
-    /**
-     * @return AuthCodeEntityInterface
-     */
-    public function getNewAuthCode()
-    {
-        // 创建新授权码时调用方法
-        // 需要返回 AuthCodeEntityInterface 对象
-        return new AuthCodeEntity();
-    }
-
-    public function persistNewAuthCode(AuthCodeEntityInterface $authCodeEntity)
-    {
-		// 创建新授权码时调用此方法
-        // 可以用于持久化存储授权码，持久化数据库自行选择
-        // 可以使用参数中的 AuthCodeEntityInterface 对象，获得有价值的信息：
-        // $authCodeEntity-&gt;getIdentifier(); // 获得授权码唯一标识符
-        // $authCodeEntity-&gt;getExpiryDateTime(); // 获得授权码过期时间
-        // $authCodeEntity-&gt;getUserIdentifier(); // 获得用户标识符
-        // $authCodeEntity-&gt;getScopes(); // 获得权限范围
-        // $authCodeEntity-&gt;getClient()-&gt;getIdentifier(); // 获得客户端标识符
-    }
-
-    public function revokeAuthCode($codeId)
-    {
-		// 当使用授权码获取访问令牌时调用此方法
-        // 可以在此时将授权码从持久化数据库中删除
-        // 参数为授权码唯一标识符
-    }
-
-    public function isAuthCodeRevoked($codeId)
-    {
-		// 当使用授权码获取访问令牌时调用此方法
-        // 用于验证授权码是否已被删除
-        // return true 已删除，false 未删除
-        return false;
-    }
-}
-</code></pre>
-<pre><code class="language-php">class ClientRepository implements ClientRepositoryInterface
-{
-    /**
-     * @return ClientEntityInterface
-     */
-    public function getClientEntity($clientIdentifier, $grantType = null, $clientSecret = null, $mustValidateSecret = true)
-    {
-        // 获取客户端对象时调用方法，用于验证客户端
-        // 需要返回 ClientEntityInterface 对象
-        // $clientIdentifier 客户端唯一标识符
-        // $grantType 代表授权类型，根据类型不同，验证方式也不同
-        // $clientSecret 代表客户端密钥，是客户端事先在授权服务器中注册时得到的
-        // $mustValidateSecret 代表是否需要验证客户端密钥
-        $client = new ClientEntity();
-        $client-&gt;setIdentifier($clientIdentifier);
-
-        return $client;
-    }
-}
-</code></pre>
-<pre><code class="language-php">class RefreshTokenRepository implements RefreshTokenRepositoryInterface
-{
-    /**
-     * @return RefreshTokenEntityInterface
-     */
-    public function getNewRefreshToken()
-    {
-        // 创建新授权码时调用方法
-        // 需要返回 RefreshTokenEntityInterface 对象
-        return new RefreshTokenEntity();
-    }
-
-    public function persistNewRefreshToken(RefreshTokenEntityInterface $refreshTokenEntity)
-    {
-		// 创建新刷新令牌时调用此方法
-        // 用于持久化存储授刷新令牌
-        // 可以使用参数中的 RefreshTokenEntityInterface 对象，获得有价值的信息：
-        // $refreshTokenEntity-&gt;getIdentifier(); // 获得刷新令牌唯一标识符
-        // $refreshTokenEntity-&gt;getExpiryDateTime(); // 获得刷新令牌过期时间
-        // $refreshTokenEntity-&gt;getAccessToken()-&gt;getIdentifier(); // 获得访问令牌标识符
-    }
-
-    public function revokeRefreshToken($tokenId)
-    {
-		// 当使用刷新令牌获取访问令牌时调用此方法
-        // 原刷新令牌将删除，创建新的刷新令牌
-        // 参数为原刷新令牌唯一标识
-        // 可在此删除原刷新令牌
-    }
-
-    public function isRefreshTokenRevoked($tokenId)
-    {
-        // 当使用刷新令牌获取访问令牌时调用此方法
-        // 用于验证刷新令牌是否已被删除
-        // return true 已删除，false 未删除
-        return false;
-    }
-}
-</code></pre>
-<pre><code class="language-php">class ScopeRepository implements ScopeRepositoryInterface
-{
-    /**
-     * @return ScopeEntityInterface
-     */
-    public function getScopeEntityByIdentifier($identifier)
-    {
-        // 验证权限是否在权限范围中会调用此方法
-        // 参数为单个权限标识符
-        // ......
-        // 验证成功则返回 ScopeEntityInterface 对象
-        $scope = new ScopeEntity();
-        $scope-&gt;setIdentifier($identifier);
-
-        return $scope;
-    }
-
-    public function finalizeScopes(
-        array $scopes,
-        $grantType,
-        ClientEntityInterface $clientEntity,
-        $userIdentifier = null
-    ) {
-        // 在创建授权码与访问令牌前会调用此方法
-        // 用于验证权限范围、授权类型、客户端、用户是否匹配
-        // 可整合进项目自身的权限控制中
-        // 必须返回 ScopeEntityInterface 对象可用的 scope 数组
-        // 示例：
-        // $scope = new ScopeEntity();
-        // $scope-&gt;setIdentifier('example');
-        // $scopes[] = $scope;
-
-        return $scopes;
-    }
-}
-</code></pre>
-<pre><code class="language-php">class UserRepository implements UserRepositoryInterface
-{
-    /**
-     * @return UserEntityInterface
-     */
-    public function getUserEntityByUserCredentials(
-        $username,
-        $password,
-        $grantType,
-        ClientEntityInterface $clientEntity
-    ) {
-        // 验证用户时调用此方法
-        // 用于验证用户信息是否符合
-        // 可以验证是否为用户可使用的授权类型($grantType)与客户端($clientEntity)
-        // 验证成功返回 UserEntityInterface 对象
-        $user = new UserEntity();
-        $user-&gt;setIdentifier(1);
-
-        return $user;
-    }
-}
-</code></pre>
-<h3 id="entities">Entities</h3>
-<p>Entities 里是 oauth2-server 处理授权与认证逻辑的类，它为我们提供了 <a href="#Interfaces">Interfaces</a> 来定义需要实现的方法，同时提供了 <a href="#Traits">Traits</a> 帮助我们实现，可以选择使用，有需要时也可以重写。</p>
-<pre><code class="language-php">class AccessTokenEntity implements AccessTokenEntityInterface
-{
-    use AccessTokenTrait, TokenEntityTrait, EntityTrait;
-}
-</code></pre>
-<pre><code class="language-php">class AuthCodeEntity implements AuthCodeEntityInterface
-{
-    use EntityTrait, TokenEntityTrait, AuthCodeTrait;
-}
-</code></pre>
-<pre><code class="language-php">class ClientEntity implements ClientEntityInterface
-{
-    use EntityTrait, ClientTrait;
-}
-</code></pre>
-<pre><code class="language-php">class RefreshTokenEntity implements RefreshTokenEntityInterface
-{
-    use RefreshTokenTrait, EntityTrait;
-}
-</code></pre>
-<pre><code class="language-php">class ScopeEntity implements ScopeEntityInterface
-{
-    use EntityTrait;
-	
-    // 没有 Trait 实现这个方法，需要自行实现
-    // oauth2-server 项目的测试代码的实现例子
-    public function jsonSerialize()
-    {
-        return $this-&gt;getIdentifier();
-    }
-}
-</code></pre>
-<pre><code class="language-php">class UserEntity implements UserEntityInterface
-{
-    use EntityTrait;
-}
-</code></pre>
-<h3 id="interfaces">Interfaces</h3>
-<p><strong>Repositories</strong></p>
-<ul>
-<li>
-<p>League\OAuth2\Server\Repositories\AccessTokenRepositoryInterface.php</p>
-</li>
-<li>
-<p>League\OAuth2\Server\Repositories\AuthCodeRepositoryInterface.php</p>
-</li>
-<li>
-<p>League\OAuth2\Server\Repositories\ClientRepositoryInterface.php</p>
-</li>
-<li>
-<p>League\OAuth2\Server\Repositories\RefreshTokenRepositoryInterface.php</p>
-</li>
-<li>
-<p>League\OAuth2\Server\Repositories\ScopeRepositoryInterface.php</p>
-</li>
-<li>
-<p>League\OAuth2\Server\Repositories\UserRepositoryInterface.php</p>
-</li>
-</ul>
-<p><strong>Entities</strong></p>
-<ul>
-<li>League\OAuth2\Server\Entities\AccessTokenEntityInterface.php</li>
-<li>League\OAuth2\Server\Entities\AuthCodeEntityInterface.php</li>
-<li>League\OAuth2\Server\Entities\ClientEntityInterface.php</li>
-<li>League\OAuth2\Server\Entities\RefreshTokenEntityInterface.php</li>
-<li>League\OAuth2\Server\Entities\ScopeEntityInterface.php</li>
-<li>League\OAuth2\Server\Entities\TokenInterface.php</li>
-<li>League\OAuth2\Server\Entities\UserEntityInterface.php</li>
-</ul>
-<h3 id="traits">Traits</h3>
-<ul>
-<li>League\OAuth2\Server\Entities\Traits\AccessTokenTrait.php</li>
-<li>League\OAuth2\Server\Entities\Traits\AuthCodeTrait.php</li>
-<li>League\OAuth2\Server\Entities\Traits\ClientTrait.php</li>
-<li>League\OAuth2\Server\Entities\Traits\EntityTrait.php</li>
-<li>League\OAuth2\Server\Entities\Traits\RefreshTokenTrait.php</li>
-<li>League\OAuth2\Server\Entities\Traits\ScopeTrait.php</li>
-<li>League\OAuth2\Server\Entities\Traits\TokenEntityTrait.php</li>
-</ul>
-<h2 id="事件">事件</h2>
-<p>oauth2-server 预设了一些事件，目前官方文档中只有两个，余下的可以在 RequestEvent.php 文件中查看。</p>
-<h5 id="clientauthenticationfailed">client.authentication.failed</h5>
-<pre><code class="language-php">$server-&gt;getEmitter()-&gt;addListener(
-    'client.authentication.failed',
-    function (\League\OAuth2\Server\RequestEvent $event) {
-        // do something
-    }
-);
-</code></pre>
-<p>客户端身份验证未通过时触发此事件。你可以在客户端尝试 <code>n</code> 次失败后禁止它一段时间内的再次尝试。</p>
-<h5 id="userauthenticationfailed">user.authentication.failed</h5>
-<pre><code class="language-php">$server-&gt;getEmitter()-&gt;addListener(
-    'user.authentication.failed',
-    function (\League\OAuth2\Server\RequestEvent $event) {
-        // do something
-    }
-);
-</code></pre>
-<p>用户身份验证未通过时触发此事件。你可以通过这里提醒用户重置密码，或尝试 <code>n</code> 次后禁止用户再次尝试。</p>
-<h2 id="参考文章">参考文章</h2>
-<p>《oauth2-server 官方文档》(https://oauth2.thephpleague.com/)</p>
-<p>《理解OAuth 2.0》-阮一峰（http://www.ruanyifeng.com/blog/2014/05/oauth_2_0.html）</p>
-]]></content>
-    </entry>
-    <entry>
-        <title type="html"><![CDATA[Session 与 JWT]]></title>
-        <id>https://cnbailian.github.io/post/session-and-JWT/</id>
-        <link href="https://cnbailian.github.io/post/session-and-JWT/">
-        </link>
-        <updated>2017-08-11T11:00:00.000Z</updated>
-        <summary type="html"><![CDATA[<p><strong>关于 REST 与 HTTP 中无状态架构约束的思考之 Session 与 JWT</strong></p>
-]]></summary>
-        <content type="html"><![CDATA[<p><strong>关于 REST 与 HTTP 中无状态架构约束的思考之 Session 与 JWT</strong></p>
-<!--more-->  
-<h3 id="知识点">知识点</h3>
-<ol>
-<li>
-<p><strong>无状态</strong></p>
-<ul>
-<li>
-<p>关于无状态，Fielding博士在论文的 3.4.3 与 5.1.3 中有所提及。</p>
-</li>
-<li>
-<p>《3.4.3 客户-无状态-服务器（Client-Stateless-Server）》</p>
-</li>
-<li>
-<blockquote>
-<p>客户-无状态-服务器风格源自客户-服务器风格，并且添加了额外的约束：在服务器组件至上不允许有<strong>会话状态（session state）</strong> 。从客户发给服务器的每个请求中，都必须包含理解请求所必须的全部信息，不能利用任何保存在服务器上的上下文（content），会话状态应全部保存在客户端。</p>
-</blockquote>
-</li>
-<li>
-<p>《5.1.3 无状态》中对于无状态的描述与 3.4.3 一致。</p>
-</li>
-</ul>
-</li>
-<li>
-<p><strong>Cookie</strong></p>
-<ul>
-<li>
-<p>说 session 之前先说一下 cookie，因为有太多人将 cookie 与 session 搞混了。</p>
-</li>
-<li>
-<blockquote>
-<p>cookie 最初由网景公司开发，是当前识别用户，实现持久会话的最好方式。</p>
-</blockquote>
-</li>
-<li>
-<blockquote>
-<p>可以笼统的将 cookie 分为两类：会话 cookie 和持久 cookie，会话 cookie 是一种临时 cookie，它记录了用户访问站点时的设置和偏好。用户退出浏览器时，会话 cookie 就被删除了。持久 cookie 的生存时间更长一些，它们存储在硬盘上，浏览器退出，计算机重启时它们仍然存在。会话 cookie 和持久 cookie 的唯一区别就是它们的过期时间。</p>
-</blockquote>
-</li>
-<li>
-<p>以上是《HTTP权威指南》一书中对于 cookie 的解释。</p>
-</li>
-</ul>
-</li>
-<li>
-<p><strong>Session ID</strong></p>
-<ul>
-<li>
-<p>会话 cookie 就是现在人们常说的 session，他的表现形式通常为：</p>
-</li>
-<li>
-<blockquote>
-<p>一个很短的由数字和字母组成的字符串键，它和服务器端的某个非常大的数据结构相关联。</p>
-</blockquote>
-</li>
-<li>
-<p>恩，上面是《RESTful Web APIs》对于 seesion 的看法，也就是 session ID。这也是我对于这个知识点想说明的，我针对的不是会话 cookie 的运行机制，而是<strong>使用字符串来代替会话状态，将会话状态全部存储于服务器端的使用方法</strong>。</p>
-</li>
-</ul>
-</li>
-<li>
-<p><strong>JWT</strong></p>
-<ul>
-<li>
-<blockquote>
-<p>JSON Web Token（JWT）是一种开放标准（<a href="https://tools.ietf.org/html/rfc7519">RFC 7519</a>），它定义了一种紧凑且自成一体的方式，使用 JSON 格式安全地传输信息。</p>
-</blockquote>
-</li>
-<li>
-<p>这种格式有很多优点，我这里用于与 session ID 来比较的是它的<strong>自成一体</strong>。</p>
-</li>
-<li>
-<blockquote>
-<p>自成一体：这个载体（payload）包含所有的用户请求信息，避免频繁的查询数据库。</p>
-</blockquote>
-</li>
-<li>
-<p>是不是似曾相识的描述，没错，无状态也是这个标准：包含理解请求所必须的全部信息。</p>
-</li>
-</ul>
-</li>
-</ol>
-<h3 id="比较">比较</h3>
-<p>在我最初的想法里，是没有比较这个概念的，很明显，JWT 是符合无状态架构风格的，且它最常见的使用地点也是在认证授权部分，所以怎么看都是要比 seesion ID 要好用的。于是我去 v2ex 问了一下这个问题，<a href="https://www.v2ex.com/t/381996">《为什么 session 机制没有被 JWT 所取代?》</a>，很感谢V友们热心回答。经过整理总结，我也理解了 JWT 的不足与 session ID 的优点。</p>
-<h3 id="无状态架构的取舍">无状态架构的取舍</h3>
-<p>在说 JWT 与 session ID 的差异之前，先说一下关于无状态架构的取舍。</p>
-<p>Fielding博士是通过整理一系列基于网络应用的架构风格，并对其分类评估，而后有所取舍，组合成的 REST。不可能每种架构都只有优点没有缺点，无状态架构也一样，论文的 3.4.3小节 与 5.1.3小节，Fielding博士对于无状态的取舍有着详细的表述。</p>
-<blockquote>
-<p>这一约束产生了可见性，可靠性，可伸缩性三个架构属性，改善了可见性是因为监视系统不必为了确定一个请求的全部性质而去查看该请求之外的多个请求。改善了可靠性是因为它减轻了从局部故障中恢复的任务量。改善了可伸缩性是因为不必在多个请求之间保存状态，从而允许服务器组件迅速释放资源，并进一步简化其实现，因为服务器不必跨多个请求管理资源的使用情况。<br>
-与大多数架构抉择一样，无状态这一架构约束反映出了设计上的权衡点。其缺点是：由于不能将状态数据保存在服务器上的共享上下文中，因此增加了在一系列请求中发送的重复数据（每次交互的开销），可能会降低网络性能。此外，将应用状态放在客户端还降低了服务器对于一致的应用行为的控制能力，因为这样一来，应用就得依赖于跨多个客户端版本（semantics across multiple client versions）的语义的正确实现。</p>
-</blockquote>
-<p><em>顺带一提，原来我认为 cookie 应该是符合无状态的，因为它还是将内容存在客户端的，每次请求都需要携带。但《RESTful Web APIs》中点出了 cookie 的问题，作者认为：客户端一旦接受了一个 cookie，它就应该与随后一定时间内的所有请求一起提交给服务器。服务器也会要求客户端以后不能再发起在接受这个 cookie 之前曾经发起过的请求了。这也违反了无状态原则。</em></p>
-<h3 id="session-id-与-jwt-的取舍">Session ID 与 JWT 的取舍</h3>
-<p><strong>Session ID</strong></p>
-<p>先说 session ID 存在的问题，由于违反了无状态的架构约束，所以很明显的也就没有了可见性，可靠性，可伸缩性。</p>
-<ul>
-<li>可见性：客户端不可能在一堆混乱的字符串中得到有用信息，自然没有了可见性。</li>
-<li>可靠性：一旦发生故障，可能需要跨越多个请求的结果查询信息，增加了任务量。</li>
-<li>可伸缩性：这个词在论文中被提到过很多很多次了，客户-服务器改善了可伸缩性，无状态改善了可伸缩性，缓存改善了可伸缩性等等等等，可见可伸缩性在 Web 中的重要性了。那么 session ID 在哪方面对可伸缩性造成了影响呢？举个简单的例子：负载均衡。这个很常见对吧，做 Web 的应该都有接触，负载均衡就是很常见的横向的可伸缩性。session ID 在这种情况下，就有很明显的问题，他需要每个单元对其进行额外的处理，比如 session 的同步，或者 session 单独剥离出一个额外的单元，还需要为这个额外的单元考虑负载问题。</li>
-</ul>
-<p><strong>JWT</strong></p>
-<p>再说 JWT 的问题，符合了无状态的架构约束，上面的那三个架构属性都有所改善，问题也正是交互的开销问题，JWT 在有些时候要存储所有完整的会话是不现实的，这就需要存储资源ID，需要进行额外的处理。但是对比 session ID 来说，额外的资源存储要少很多。</p>
-<p><em>额外提一点，这里只讨论了 JWT 的自成一体这一机制，其他不讨论。</em></p>
-<p><strong>取舍</strong></p>
-<p>服务器没有了会话状态的保存，涉及到认证授权的一些问题，需要额外进行处理，例如注销，统计在线用户数量等问题。由于有这些问题的存在，处理后的 JWT 很可能变为另一个 session ID，但 session ID 在这方面更加成熟。所以，请根据自身的项目，采取适当的处理方式。</p>
-<h3 id="总结">总结</h3>
-<p>session ID 机制在网站中已经是一套很成熟的系统的。不遵守无状态架构约束所带来的后果也都有着大量的解决方案。JWT 这种符合无状态架构约束的机制，并没有带来很明显的效果，所以很难推广开来。</p>
-<p>但是，在 Web API 的领域，session ID 的问题被进一步的凸显，所以应该尽量选择符合无状态架构约束的机制。</p>
 ]]></content>
     </entry>
 </feed>
