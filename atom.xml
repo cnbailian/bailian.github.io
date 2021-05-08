@@ -2,7 +2,7 @@
 <feed xmlns="http://www.w3.org/2005/Atom">
     <id>https://cnbailian.github.io</id>
     <title>白联</title>
-    <updated>2021-05-08T03:15:00.959Z</updated>
+    <updated>2021-05-08T03:18:12.427Z</updated>
     <generator>https://github.com/jpmonette/feed</generator>
     <link rel="alternate" href="https://cnbailian.github.io"/>
     <link rel="self" href="https://cnbailian.github.io/atom.xml"/>
@@ -16,8 +16,12 @@
         <link href="https://cnbailian.github.io/post/kubernetes-samplecontroller/">
         </link>
         <updated>2021-05-08T03:10:53.000Z</updated>
+        <summary type="html"><![CDATA[<h2 id="总结">总结</h2>
+<figure data-type="image" tabindex="1"><img src="https://tva1.sinaimg.cn/large/0081Kckwly1glrrw7x90hj31va0ton44.jpg" alt="Kubernetes Informer" loading="lazy"></figure>
+]]></summary>
         <content type="html"><![CDATA[<h2 id="总结">总结</h2>
 <figure data-type="image" tabindex="1"><img src="https://tva1.sinaimg.cn/large/0081Kckwly1glrrw7x90hj31va0ton44.jpg" alt="Kubernetes Informer" loading="lazy"></figure>
+<!--more-->
 <h2 id="设计理念">设计理念</h2>
 <p>client-go informer</p>
 <h3 id="kubernetes-resource-type">Kubernetes Resource Type</h3>
@@ -1209,8 +1213,12 @@ func (c *Controller) processNextWorkItem() bool {
         <link href="https://cnbailian.github.io/post/why-do-use-kubernetes-crd/">
         </link>
         <updated>2021-05-08T03:09:27.000Z</updated>
+        <summary type="html"><![CDATA[<p>Kubernetes 提供了 CRD(CustomResourceDefinitions) 这种扩展方式满足了用户增强 Kubernetes 功能的需求，我们熟悉的 Kubernetes  Operator 也是基于这一机制而实现。</p>
+<p>本文想讨论的是我们要在什么时候使用 CRD 以及为什么要使用 CRD。</p>
+]]></summary>
         <content type="html"><![CDATA[<p>Kubernetes 提供了 CRD(CustomResourceDefinitions) 这种扩展方式满足了用户增强 Kubernetes 功能的需求，我们熟悉的 Kubernetes  Operator 也是基于这一机制而实现。</p>
 <p>本文想讨论的是我们要在什么时候使用 CRD 以及为什么要使用 CRD。</p>
+<!--more-->
 <h2 id="我是否应该向我的-kubernetes-集群添加定制资源">我是否应该向我的 Kubernetes 集群添加定制资源？</h2>
 <p>表格是 <a href="https://kubernetes.io/zh/docs/concepts/extend-kubernetes/api-extension/custom-resources/#%E6%88%91%E6%98%AF%E5%90%A6%E5%BA%94%E8%AF%A5%E5%90%91%E6%88%91%E7%9A%84-kubernetes-%E9%9B%86%E7%BE%A4%E6%B7%BB%E5%8A%A0%E5%AE%9A%E5%88%B6%E8%B5%84%E6%BA%90">Kubernetes 官网</a>列出的选择 CRD 的场景，其中最重要的，也是难以理解的应该是<strong>声明式 API</strong>这一概念。</p>
 <table>
