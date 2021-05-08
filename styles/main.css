@@ -762,4 +762,10 @@ a {
       .post-detail .post-content pre code{
   overflow: auto;
 }
+.post-item .left .post-abstract h2 {
+  font-size: large;
+}
+.post-item .left .post-abstract img {
+  width: 60%;
+}
     
